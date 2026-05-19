@@ -40,6 +40,7 @@ export default function ProfilesPage() {
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError]   = useState('');
   const [matchNote, setMatchNote]     = useState('');
+  const [verification, setVerification] = useState(null);
 
   useEffect(() => {
     api.get('/user/profile').then(res => {
@@ -47,6 +48,7 @@ export default function ProfilesPage() {
       setDocuments(res.data.documents || []);
       setForm(res.data.profile || {});
     }).catch(console.error).finally(() => setLoading(false));
+    api.get('/verification/status').then(r => setVerification(r.data.verification)).catch(() => {});
   }, []);
 
   const handleSave = async (e) => {
@@ -91,7 +93,8 @@ export default function ProfilesPage() {
 
   const fields = ROLE_FIELDS[user?.role] || [];
 
-  const trustScore = Math.min(100, 60 + (documents.length * 10));
+  const trustScore = verification?.trustScore ?? Math.min(100, 60 + (documents.length * 10));
+  const trustLevel = verification?.trustLevel;
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#F0F4F8' }}>
@@ -114,11 +117,12 @@ export default function ProfilesPage() {
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 36, fontWeight: 800 }}>{trustScore}%</div>
-              <div style={{ fontSize: 11, opacity: 0.7, fontWeight: 700 }}>Trust Score</div>
+              <div style={{ fontSize: 36, fontWeight: 800 }}>{trustScore}</div>
+              <div style={{ fontSize: 11, opacity: 0.7, fontWeight: 700 }}>AI Trust Score</div>
               <div style={{ width: 80, height: 6, background: 'rgba(255,255,255,0.2)', borderRadius: 3, marginTop: 6, overflow: 'hidden' }}>
-                <div style={{ width: `${trustScore}%`, height: '100%', background: '#4ade80', borderRadius: 3 }} />
+                <div style={{ width: `${trustScore}%`, height: '100%', background: trustScore >= 70 ? '#4ade80' : trustScore >= 40 ? '#fbbf24' : '#f87171', borderRadius: 3 }} />
               </div>
+              {trustLevel && <div style={{ fontSize: 10, marginTop: 4, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '.5px' }}>{trustLevel}</div>}
             </div>
           </div>
 
