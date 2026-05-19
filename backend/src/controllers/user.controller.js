@@ -153,9 +153,11 @@ async function updateProfile(req, res) {
 async function uploadDocuments(req, res) {
   try {
     const user = req.user;
-    const files = req.files;
+    // upload.fields() gives an object keyed by field name; flatten to array
+    const filesObj = req.files || {};
+    const files = Object.values(filesObj).flat();
 
-    if (!files || files.length === 0) {
+    if (files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
