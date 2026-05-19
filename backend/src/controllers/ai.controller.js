@@ -3,7 +3,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-3-5-haiku-20241022';
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── Retry helper with exponential backoff ──
@@ -14,11 +14,12 @@ async function callWithRetry(fn, retries = 3, delayMs = 1000) {
     } catch (err) {
       const isRetryable = err.status === 529 || err.status === 503 || err.status === 429;
       if (isRetryable && i < retries - 1) {
-        const wait = delayMs * Math.pow(2, i); // 1s, 2s, 4s
+        const wait = delayMs * Math.pow(2, i);
         console.log(`Claude overloaded (${err.status}), retrying in ${wait}ms...`);
         await new Promise(r => setTimeout(r, wait));
         continue;
       }
+      console.error(`[AI] Claude API error: status=${err.status} message=${err.message}`);
       throw err;
     }
   }
