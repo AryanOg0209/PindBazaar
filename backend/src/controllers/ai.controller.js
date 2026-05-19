@@ -3,7 +3,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const MODEL = 'claude-3-5-haiku-20241022';
+const MODEL = 'claude-sonnet-4-6';
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── Retry helper with exponential backoff ──
