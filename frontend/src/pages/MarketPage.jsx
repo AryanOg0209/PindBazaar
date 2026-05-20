@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import DesktopTopNav from '../components/dashboard/DesktopTopNav';
 import Loader from '../components/dashboard/Loader';
+import api from '../api/axios';
 
 const WORK_TYPES = ['demand', 'supply', 'job'];
 const CROP_TYPES = ['Wheat', 'Paddy', 'Sugarcane', 'Cotton', 'Mustard', 'Soybean', 'Maize', 'Barley'];
@@ -29,6 +30,11 @@ export default function MarketPage() {
   const [accepting, setAccepting]       = useState(false);
   const [agreedPrice, setAgreedPrice]   = useState('');
   const [creating, setCreating]         = useState(false);
+  const [aiPrompt, setAiPrompt]         = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiGenError, setAiGenError]     = useState('');
+  const [negoAdvice, setNegoAdvice]     = useState(null);
+  const [negoLoading, setNegoLoading]   = useState(false);
 
   const [formData, setFormData] = useState({
     type: 'demand', title: '', description: '', cropType: '', quantity: '', price: '', location: ''
@@ -103,9 +109,45 @@ export default function MarketPage() {
     } finally { setAccepting(false); }
   };
 
+  const handleAIGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiGenerating(true); setAiGenError('');
+    try {
+      const res = await api.post('/ai/generate-listing', {
+        description: aiPrompt,
+        role: user?.role,
+        district: user?.district,
+      });
+      const d = res.data;
+      setFormData(f => ({
+        ...f,
+        type: d.type || f.type,
+        title: d.title || f.title,
+        description: d.description || f.description,
+        cropType: d.cropType || f.cropType,
+        quantity: d.quantity ? String(d.quantity) : f.quantity,
+        price: d.price ? String(d.price) : f.price,
+        location: d.location || f.location,
+      }));
+      setAiGenError(d.priceReasoning ? `💡 ${d.priceReasoning}` : '');
+    } catch (e) {
+      setAiGenError(e.response?.data?.error || 'AI generation failed.');
+    } finally { setAiGenerating(false); }
+  };
+
   const openAccept = (listing) => {
     setAgreedPrice(listing.price ? String(listing.price) : '');
     setAcceptModal(listing);
+    setNegoAdvice(null);
+    setNegoLoading(true);
+    api.post('/ai/negotiation-advice', {
+      listingTitle: listing.title,
+      listingPrice: listing.price,
+      cropType: listing.cropType,
+      location: listing.location,
+      listingType: listing.type,
+      userRole: user?.role,
+    }).then(r => setNegoAdvice(r.data)).catch(() => {}).finally(() => setNegoLoading(false));
   };
 
   return (
@@ -263,6 +305,24 @@ export default function MarketPage() {
       {showModal && (
         <Modal title="📋 Create New Listing" onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* AI Generator */}
+            <div style={{ background: 'linear-gradient(135deg,#EEF2FF,#E0E7FF)', borderRadius: 12, padding: 16, border: '1px solid #C7D2FE' }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#3730A3', marginBottom: 8 }}>✦ Generate with AI</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  placeholder='e.g. "Want to sell 50 quintals of wheat from Ludhiana"'
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAIGenerate())}
+                  style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #C7D2FE', fontSize: 13, fontFamily: 'inherit', background: 'white' }}
+                />
+                <button type="button" onClick={handleAIGenerate} disabled={aiGenerating || !aiPrompt.trim()}
+                  style={{ padding: '9px 16px', background: '#3730A3', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>
+                  {aiGenerating ? '...' : '✦ Fill'}
+                </button>
+              </div>
+              {aiGenError && <div style={{ marginTop: 8, fontSize: 12, color: aiGenError.startsWith('💡') ? '#1e40af' : '#DC2626', fontWeight: 600 }}>{aiGenError}</div>}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={LABEL_STYLE}>Type of Listing</label>
@@ -322,6 +382,50 @@ export default function MarketPage() {
               {acceptModal.price && <div style={{ fontSize: 18, fontWeight: 800, color: '#059669', marginTop: 8 }}>Listed Price: ₹{Number(acceptModal.price).toLocaleString()}</div>}
             </div>
 
+            {/* AI Negotiation Advice */}
+            {negoLoading && (
+              <div style={{ background: '#F8FAFC', borderRadius: 10, padding: '12px 16px', border: '1px solid #E2E8F0', fontSize: 13, color: '#64748B', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span> Claude is analyzing this deal…
+              </div>
+            )}
+            {negoAdvice && !negoLoading && (
+              <div style={{
+                borderRadius: 12, padding: 16, border: '1.5px solid',
+                background: negoAdvice.verdict === 'accept' ? '#F0FDF4' : negoAdvice.verdict === 'counter' ? '#FFFBEB' : '#FEF2F2',
+                borderColor: negoAdvice.verdict === 'accept' ? '#BBF7D0' : negoAdvice.verdict === 'counter' ? '#FDE68A' : '#FECACA',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 18 }}>{negoAdvice.verdict === 'accept' ? '✅' : negoAdvice.verdict === 'counter' ? '🤝' : '⚠️'}</span>
+                    <span style={{ fontWeight: 800, fontSize: 14, color: negoAdvice.verdict === 'accept' ? '#166534' : negoAdvice.verdict === 'counter' ? '#92400E' : '#991B1B' }}>
+                      {negoAdvice.verdict === 'accept' ? 'Good Deal — Accept' : negoAdvice.verdict === 'counter' ? 'Counter-Offer Advised' : 'Think Before Accepting'}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8' }}>{negoAdvice.confidence}% confidence</span>
+                </div>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase' }}>Fair Price</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A' }}>₹{Number(negoAdvice.fairPrice || 0).toLocaleString()}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase' }}>Market Range</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#475569' }}>₹{Number(negoAdvice.marketMin || 0).toLocaleString()} – ₹{Number(negoAdvice.marketMax || 0).toLocaleString()}</div>
+                  </div>
+                  {negoAdvice.counterOffer && negoAdvice.verdict === 'counter' && (
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase' }}>Suggest</div>
+                      <button onClick={() => setAgreedPrice(String(negoAdvice.counterOffer))}
+                        style={{ fontSize: 14, fontWeight: 800, color: '#D97706', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 6, padding: '2px 10px', cursor: 'pointer' }}>
+                        ₹{Number(negoAdvice.counterOffer).toLocaleString()} ↑
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, marginBottom: 6 }}>{negoAdvice.reasoning}</div>
+                {negoAdvice.tip && <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', fontStyle: 'italic' }}>💡 {negoAdvice.tip}</div>}
+              </div>
+            )}
             <div>
               <label style={{ ...LABEL_STYLE, display: 'block', marginBottom: 6 }}>Your Agreed Price (₹) *</label>
               <input type="number" placeholder="Enter the price you agree to work for"
