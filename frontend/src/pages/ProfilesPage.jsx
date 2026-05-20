@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import DesktopTopNav from '../components/dashboard/DesktopTopNav';
 import Loader from '../components/dashboard/Loader';
 import api from '../api/axios';
-import { getCropPrediction, getJobMatches } from '../services/aiApi';
+import { getCropPrediction, getJobMatches, planRoute, getHarvestWindow, getProcurementForecast } from '../services/aiApi';
 
 const CROPS = ['Wheat','Paddy','Sugarcane','Cotton','Mustard','Maize','Barley','Soybean'];
 const ROLE_FIELDS = {
@@ -41,6 +41,23 @@ export default function ProfilesPage() {
   const [matchError, setMatchError]   = useState('');
   const [matchNote, setMatchNote]     = useState('');
   const [verification, setVerification] = useState(null);
+  // Route Planner (mover)
+  const [routeStops, setRouteStops]         = useState([{ location: '', type: 'pickup' }, { location: '', type: 'dropoff' }]);
+  const [routeVehicle, setRouteVehicle]     = useState('truck');
+  const [routeCargo, setRouteCargo]         = useState('wheat');
+  const [routeResult, setRouteResult]       = useState(null);
+  const [routeLoading, setRouteLoading]     = useState(false);
+  const [routeError, setRouteError]         = useState('');
+  // Harvest Window (farmer + baler)
+  const [hwCrop, setHwCrop]                 = useState('Wheat');
+  const [hwResult, setHwResult]             = useState(null);
+  const [hwLoading, setHwLoading]           = useState(false);
+  const [hwError, setHwError]               = useState('');
+  // Procurement Forecast (industry)
+  const [pfMonths, setPfMonths]             = useState(3);
+  const [pfResult, setPfResult]             = useState(null);
+  const [pfLoading, setPfLoading]           = useState(false);
+  const [pfError, setPfError]               = useState('');
   // Disease scanner
   const [diseaseImage, setDiseaseImage]   = useState(null);
   const [diseasePreview, setDiseasePreview] = useState('');
@@ -101,6 +118,39 @@ export default function ProfilesPage() {
       setDiagError('Failed to process image.');
       setDiagnosing(false);
     }
+  };
+
+  // Route Planner handlers
+  const updateStop = (i, field, val) => setRouteStops(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: val } : s));
+  const addStop = () => setRouteStops(prev => [...prev, { location: '', type: 'delivery' }]);
+  const removeStop = (i) => setRouteStops(prev => prev.filter((_, idx) => idx !== i));
+  const handlePlanRoute = async () => {
+    setRouteLoading(true); setRouteResult(null); setRouteError('');
+    try {
+      const data = await planRoute(routeStops, routeVehicle, routeCargo);
+      setRouteResult(data);
+    } catch (e) { setRouteError(e.response?.data?.error || 'Route planning failed.'); }
+    finally { setRouteLoading(false); }
+  };
+
+  // Harvest Window handler
+  const handleHarvestWindow = async () => {
+    setHwLoading(true); setHwResult(null); setHwError('');
+    try {
+      const data = await getHarvestWindow(hwCrop, form.district, form.state, form.landAcres);
+      setHwResult(data);
+    } catch (e) { setHwError(e.response?.data?.error || 'Analysis failed.'); }
+    finally { setHwLoading(false); }
+  };
+
+  // Procurement Forecast handler
+  const handleProcurementForecast = async () => {
+    setPfLoading(true); setPfResult(null); setPfError('');
+    try {
+      const data = await getProcurementForecast(form.industryType, form.district, form.state, pfMonths);
+      setPfResult(data);
+    } catch (e) { setPfError(e.response?.data?.error || 'Forecast failed.'); }
+    finally { setPfLoading(false); }
   };
 
   const handleCropPredict = async () => {
@@ -384,7 +434,289 @@ export default function ProfilesPage() {
                   )}
                   {matches.length === 0 && !matchLoading && !matchError && <div style={{ color: '#64748B', fontSize: 13 }}>Click the button above to get your personalized job recommendations!</div>}
                 </div>
-              </div>
+
+              {/* 🗺️ Smart Route Planner — mover only */}
+              {user?.role === 'mover' && (
+                <div style={{ background: 'white', borderRadius: 16, padding: 24, boxShadow: '0 4px 12px rgba(0,0,0,.06)' }}>
+                  <h3 style={{ margin: '0 0 4px', fontWeight: 800, fontSize: 17 }}>🗺️ Smart Route Planner</h3>
+                  <p style={{ margin: '0 0 16px', color: '#64748B', fontSize: 13 }}>Add your stops — Claude AI will optimize order, estimate fuel, tolls & earnings</p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Vehicle Type</label>
+                      <select value={routeVehicle} onChange={e => setRouteVehicle(e.target.value)}
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13 }}>
+                        {['tractor', 'truck', 'mini-truck', 'tempo'].map(v => <option key={v}>{v}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Cargo Type</label>
+                      <select value={routeCargo} onChange={e => setRouteCargo(e.target.value)}
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13 }}>
+                        {['wheat', 'paddy', 'bales', 'sugarcane', 'vegetables', 'mixed'].map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Stops ({routeStops.length})</label>
+                    {routeStops.map((stop, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                        <select value={stop.type} onChange={e => updateStop(i, 'type', e.target.value)}
+                          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 12, flexShrink: 0 }}>
+                          {['pickup','dropoff','delivery','loading'].map(t => <option key={t}>{t}</option>)}
+                        </select>
+                        <input value={stop.location} placeholder={`Stop ${i+1} location (village / mandi / city)`}
+                          onChange={e => updateStop(i, 'location', e.target.value)}
+                          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13 }} />
+                        {routeStops.length > 2 && (
+                          <button onClick={() => removeStop(i)}
+                            style={{ padding: '6px 10px', background: '#FEE2E2', border: 'none', borderRadius: 8, color: '#DC2626', fontWeight: 800, cursor: 'pointer', fontSize: 14 }}>✕</button>
+                        )}
+                      </div>
+                    ))}
+                    <button onClick={addStop}
+                      style={{ padding: '7px 16px', background: '#F1F5F9', border: '1px dashed #CBD5E1', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#475569', cursor: 'pointer' }}>
+                      + Add Stop
+                    </button>
+                  </div>
+
+                  <button onClick={handlePlanRoute} disabled={routeLoading || routeStops.some(s => !s.location.trim())}
+                    style={{ padding: '10px 28px', background: '#7C3AED', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', marginTop: 4 }}>
+                    {routeLoading ? '🗺️ Planning Route...' : '🚀 Plan My Route'}
+                  </button>
+                  {routeError && <div style={{ marginTop: 10, padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>{routeError}</div>}
+
+                  {routeResult && (
+                    <div style={{ marginTop: 20, background: '#F5F3FF', borderRadius: 14, padding: 20, border: '1px solid #DDD6FE' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+                        {[
+                          { icon: '📍', label: 'Distance', value: `${routeResult.totalDistanceKm} km` },
+                          { icon: '⏱️', label: 'Est. Time', value: `${routeResult.estimatedHours} hrs` },
+                          { icon: '⛽', label: 'Fuel Cost', value: `₹${Number(routeResult.fuelCostRs||0).toLocaleString()}` },
+                          { icon: '💰', label: 'Net Profit', value: `₹${Number(routeResult.profitRs||0).toLocaleString()}` },
+                        ].map((s, i) => (
+                          <div key={i} style={{ background: 'white', borderRadius: 10, padding: 12, textAlign: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.05)' }}>
+                            <div style={{ fontSize: 22 }}>{s.icon}</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A', margin: '4px 0 2px' }}>{s.value}</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase' }}>{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {routeResult.routePlan && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 8 }}>Optimized Route</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {(routeResult.optimizedOrder || []).map((stop, i) => (
+                              <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '4px 10px', background: 'white', borderRadius: 20, border: '1px solid #DDD6FE', color: '#5B21B6' }}>
+                                {i > 0 && <span style={{ color: '#A78BFA' }}>→</span>}
+                                📍 {typeof stop === 'string' ? stop : stop.location || `Stop ${i+1}`}
+                              </span>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 13, color: '#374151', marginTop: 10, lineHeight: 1.6 }}>{routeResult.routePlan}</div>
+                        </div>
+                      )}
+
+                      {routeResult.driverTips?.length > 0 && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 6 }}>Driver Tips</div>
+                          {routeResult.driverTips.map((t, i) => <div key={i} style={{ fontSize: 13, color: '#475569', marginBottom: 3 }}>💡 {t}</div>)}
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        {routeResult.bestDepartureTime && <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: '#DCFCE7', color: '#166534' }}>🕐 Depart: {routeResult.bestDepartureTime}</span>}
+                        {routeResult.tollCostRs > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: '#FEF3C7', color: '#92400E' }}>🛣️ Tolls: ₹{routeResult.tollCostRs}</span>}
+                      </div>
+
+                      {routeResult.warnings?.length > 0 && (
+                        <div style={{ marginTop: 12, padding: '10px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>
+                          {routeResult.warnings.map((w, i) => <div key={i} style={{ fontSize: 13, color: '#92400E' }}>⚠️ {w}</div>)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 🌧️ Harvest & Baling Window — farmer + baler only */}
+              {(user?.role === 'farmer' || user?.role === 'baler') && (
+                <div style={{ background: 'white', borderRadius: 16, padding: 24, boxShadow: '0 4px 12px rgba(0,0,0,.06)' }}>
+                  <h3 style={{ margin: '0 0 4px', fontWeight: 800, fontSize: 17 }}>🌾 Harvest & Baling Window Predictor</h3>
+                  <p style={{ margin: '0 0 16px', color: '#64748B', fontSize: 13 }}>Claude AI predicts your best harvest dates, baling windows, rain risk & expected yield</p>
+
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Crop</label>
+                      <select value={hwCrop} onChange={e => setHwCrop(e.target.value)}
+                        style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13, minWidth: 160 }}>
+                        {CROPS.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>District</label>
+                      <input value={form.district || ''} readOnly
+                        style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 13, background: '#F8FAFC', color: '#475569', minWidth: 140 }} />
+                    </div>
+                    {user?.role === 'farmer' && (
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Land (Acres)</label>
+                        <input value={form.landAcres || ''} readOnly
+                          style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 13, background: '#F8FAFC', color: '#475569', width: 80 }} />
+                      </div>
+                    )}
+                    <div style={{ alignSelf: 'flex-end' }}>
+                      <button onClick={handleHarvestWindow} disabled={hwLoading}
+                        style={{ padding: '10px 24px', background: '#D97706', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>
+                        {hwLoading ? '🌾 Analysing...' : '📅 Predict Window'}
+                      </button>
+                    </div>
+                  </div>
+                  {hwError && <div style={{ marginBottom: 12, padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>{hwError}</div>}
+
+                  {hwResult && (
+                    <div style={{ background: '#FFFBEB', borderRadius: 14, padding: 20, border: '1px solid #FDE68A' }}>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, padding: '5px 14px', borderRadius: 20, background: hwResult.urgency === 'high' ? '#FEE2E2' : hwResult.urgency === 'medium' ? '#FEF3C7' : '#DCFCE7', color: hwResult.urgency === 'high' ? '#991B1B' : hwResult.urgency === 'medium' ? '#92400E' : '#166534' }}>
+                          {hwResult.urgency === 'high' ? '🔴' : hwResult.urgency === 'medium' ? '🟡' : '🟢'} {hwResult.urgency?.toUpperCase()} URGENCY
+                        </span>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: '5px 14px', borderRadius: 20, background: hwResult.rainRisk === 'high' ? '#FEE2E2' : hwResult.rainRisk === 'medium' ? '#FEF3C7' : '#DBEAFE', color: hwResult.rainRisk === 'high' ? '#991B1B' : hwResult.rainRisk === 'medium' ? '#92400E' : '#1D4ED8' }}>
+                          🌧️ Rain Risk: {hwResult.rainRisk}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 16 }}>
+                        <div style={{ background: 'white', borderRadius: 10, padding: 14, border: '1px solid #FDE68A' }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: '#92400E', textTransform: 'uppercase', marginBottom: 6 }}>🌾 Harvest Window</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A' }}>{hwResult.harvestWindowStart}</div>
+                          <div style={{ fontSize: 12, color: '#64748B' }}>to {hwResult.harvestWindowEnd}</div>
+                          {hwResult.peakHarvestDays && <div style={{ fontSize: 12, color: '#D97706', marginTop: 4, fontWeight: 600 }}>Peak: {hwResult.peakHarvestDays}</div>}
+                        </div>
+                        <div style={{ background: 'white', borderRadius: 10, padding: 14, border: '1px solid #FDE68A' }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: '#92400E', textTransform: 'uppercase', marginBottom: 6 }}>📦 Baling Window</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A' }}>{hwResult.balingWindowStart}</div>
+                          <div style={{ fontSize: 12, color: '#64748B' }}>to {hwResult.balingWindowEnd}</div>
+                        </div>
+                      </div>
+
+                      {(hwResult.expectedYieldTons || hwResult.expectedResidueValueRs) && (
+                        <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                          {hwResult.expectedYieldTons && <span style={{ fontSize: 13, fontWeight: 700, padding: '5px 14px', borderRadius: 20, background: '#DCFCE7', color: '#166534' }}>🌱 Yield: {hwResult.expectedYieldTons} tons</span>}
+                          {hwResult.expectedResidueValueRs && <span style={{ fontSize: 13, fontWeight: 700, padding: '5px 14px', borderRadius: 20, background: '#DBEAFE', color: '#1D4ED8' }}>💰 Residue Value: ₹{Number(hwResult.expectedResidueValueRs).toLocaleString()}</span>}
+                          {hwResult.bestTimeToSellResidue && <span style={{ fontSize: 12, padding: '5px 14px', borderRadius: 20, background: '#EDE9FE', color: '#5B21B6', fontWeight: 600 }}>📅 Best to sell: {hwResult.bestTimeToSellResidue}</span>}
+                        </div>
+                      )}
+
+                      {hwResult.harvestRecommendations?.length > 0 && (
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 6 }}>Harvest Tips</div>
+                          {hwResult.harvestRecommendations.map((r, i) => <div key={i} style={{ fontSize: 13, color: '#374151', marginBottom: 3 }}>• {r}</div>)}
+                        </div>
+                      )}
+
+                      {hwResult.balingRecommendations?.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 6 }}>Baling Tips</div>
+                          {hwResult.balingRecommendations.map((r, i) => <div key={i} style={{ fontSize: 13, color: '#374151', marginBottom: 3 }}>• {r}</div>)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 🏭 Procurement Forecast — industry only */}
+              {user?.role === 'industry' && (
+                <div style={{ background: 'white', borderRadius: 16, padding: 24, boxShadow: '0 4px 12px rgba(0,0,0,.06)' }}>
+                  <h3 style={{ margin: '0 0 4px', fontWeight: 800, fontSize: 17 }}>🏭 Procurement Forecast</h3>
+                  <p style={{ margin: '0 0 16px', color: '#64748B', fontSize: 13 }}>Claude AI forecasts your raw material needs, best source districts & price trends</p>
+
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 16 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Industry Type</label>
+                      <input value={form.industryType || 'Not set'} readOnly
+                        style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 13, background: '#F8FAFC', color: '#475569', minWidth: 160 }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', display: 'block', marginBottom: 5 }}>Forecast Period</label>
+                      <select value={pfMonths} onChange={e => setPfMonths(Number(e.target.value))}
+                        style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13 }}>
+                        {[1, 3, 6, 12].map(m => <option key={m} value={m}>{m} month{m > 1 ? 's' : ''}</option>)}
+                      </select>
+                    </div>
+                    <button onClick={handleProcurementForecast} disabled={pfLoading}
+                      style={{ padding: '10px 24px', background: '#0F172A', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>
+                      {pfLoading ? '🏭 Forecasting...' : '📊 Get Forecast'}
+                    </button>
+                  </div>
+                  {pfError && <div style={{ marginBottom: 12, padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>{pfError}</div>}
+
+                  {pfResult && (
+                    <div style={{ background: '#F8FAFC', borderRadius: 14, padding: 20, border: '1px solid #E2E8F0' }}>
+                      {pfResult.aiSummary && (
+                        <div style={{ background: 'linear-gradient(135deg,#1B4332,#2D6A4F)', borderRadius: 10, padding: '14px 18px', marginBottom: 16, color: 'white', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: 24 }}>🤖</span>
+                          <div style={{ fontSize: 14, lineHeight: 1.6, opacity: 0.95 }}>{pfResult.aiSummary}</div>
+                        </div>
+                      )}
+
+                      {pfResult.procurementNeeds?.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 8 }}>Procurement Needs</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {pfResult.procurementNeeds.map((n, i) => (
+                              <div key={i} style={{ background: 'white', borderRadius: 10, padding: '8px 14px', border: '1px solid #E2E8F0', fontSize: 13 }}>
+                                <span style={{ fontWeight: 700, color: '#0F172A' }}>{n.material || n}</span>
+                                {n.quantityTons && <span style={{ color: '#64748B' }}> — {n.quantityTons}t</span>}
+                                {n.estimatedCostRs && <span style={{ color: '#059669', fontWeight: 600 }}> ₹{Number(n.estimatedCostRs).toLocaleString()}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                        {pfResult.recommendedSourceDistricts?.length > 0 && (
+                          <div style={{ background: 'white', borderRadius: 10, padding: 14, border: '1px solid #E2E8F0' }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 8 }}>Best Source Districts</div>
+                            {pfResult.recommendedSourceDistricts.map((d, i) => (
+                              <div key={i} style={{ fontSize: 13, color: '#0F172A', marginBottom: 4 }}>📍 {typeof d === 'string' ? d : `${d.district} — ${d.reason || ''}`}</div>
+                            ))}
+                          </div>
+                        )}
+                        {pfResult.priceOutlook && (
+                          <div style={{ background: 'white', borderRadius: 10, padding: 14, border: '1px solid #E2E8F0' }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 8 }}>Price Outlook</div>
+                            <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}>{pfResult.priceOutlook}</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {pfResult.costSavingTips?.length > 0 && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 6 }}>💡 Cost Saving Tips</div>
+                          {pfResult.costSavingTips.map((t, i) => <div key={i} style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>• {t}</div>)}
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        {pfResult.orderTiming && <span style={{ fontSize: 12, fontWeight: 700, padding: '5px 14px', borderRadius: 20, background: '#DBEAFE', color: '#1D4ED8' }}>📅 Order Timing: {pfResult.orderTiming}</span>}
+                        {pfResult.budgetEstimateRs && <span style={{ fontSize: 12, fontWeight: 700, padding: '5px 14px', borderRadius: 20, background: '#DCFCE7', color: '#166534' }}>💰 Budget: ₹{Number(pfResult.budgetEstimateRs).toLocaleString()}</span>}
+                      </div>
+
+                      {pfResult.supplyRisks?.length > 0 && (
+                        <div style={{ marginTop: 12, padding: '10px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: '#92400E', marginBottom: 4 }}>⚠️ SUPPLY RISKS</div>
+                          {pfResult.supplyRisks.map((r, i) => <div key={i} style={{ fontSize: 13, color: '#92400E' }}>• {r}</div>)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             )}
 
             {/* DOCUMENTS TAB */}

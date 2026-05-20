@@ -461,3 +461,163 @@ verdict rules:
     res.status(500).json({ error: 'Could not get negotiation advice.' });
   }
 };
+
+// ────────────────────────────────────────────────────────────
+// SMART ROUTE PLANNER (MOVER)
+// ────────────────────────────────────────────────────────────
+exports.routePlanner = async (req, res) => {
+  const { stops, vehicleType, cargoType } = req.body;
+  if (!stops || stops.length < 2) return res.status(400).json({ error: 'At least 2 stops required' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 900,
+        messages: [{
+          role: 'user',
+          content: `You are a route optimization expert for Punjab/Haryana agricultural logistics.
+
+Vehicle: ${vehicleType || 'Tractor-Trolley'}
+Cargo: ${cargoType || 'Agricultural goods'}
+Stops in order: ${stops.map((s, i) => `${i + 1}. ${s.location} (${s.type})`).join(', ')}
+
+Plan the optimal route and return ONLY valid JSON:
+{
+  "optimizedOrder": ["Location1", "Location2", "Location3"],
+  "totalDistanceKm": 85,
+  "estimatedHours": 3.5,
+  "fuelCostRs": 650,
+  "tollCostRs": 120,
+  "estimatedEarningsRs": 4500,
+  "profitRs": 3730,
+  "routePlan": [
+    { "stop": "Location name", "action": "pickup/dropoff/rest", "distanceFromPrevKm": 0, "notes": "Tip for this stop" }
+  ],
+  "driverTips": ["Tip 1 for safe/efficient driving on this route", "Tip 2"],
+  "bestDepartureTime": "6:00 AM",
+  "warnings": ["Any road/seasonal warning if applicable"]
+}
+
+Use realistic Punjab/Haryana road distances, diesel price ~₹90/L, mileage ~8km/L for tractor-trolley or ~12km/L for truck.`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Route planner error:', err.status, err.message);
+    res.status(500).json({ error: 'Route planning failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// HARVEST & BALING WINDOW PREDICTOR (FARMER + BALER)
+// ────────────────────────────────────────────────────────────
+exports.harvestWindow = async (req, res) => {
+  const { cropType, district, state, landAcres } = req.body;
+  if (!cropType) return res.status(400).json({ error: 'Crop type is required' });
+
+  const currentMonth = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 800,
+        messages: [{
+          role: 'user',
+          content: `You are an agricultural timing expert for Punjab/Haryana India. Current month: ${currentMonth}.
+
+Crop: ${cropType}
+District: ${district || 'Punjab'}
+State: ${state || 'Punjab'}
+Land: ${landAcres || 'unknown'} acres
+
+Predict the optimal harvest and baling window. Return ONLY valid JSON:
+{
+  "cropType": "${cropType}",
+  "harvestWindowStart": "e.g. 15 April 2026",
+  "harvestWindowEnd": "e.g. 30 April 2026",
+  "peakHarvestDays": "e.g. 20-25 April",
+  "balingWindowStart": "e.g. 21 April 2026",
+  "balingWindowEnd": "e.g. 5 May 2026",
+  "rainRisk": "low/medium/high",
+  "rainRiskDetails": "Brief explanation of rain outlook for this period",
+  "expectedYieldTons": 18.5,
+  "expectedBiomassResiduePercent": 45,
+  "expectedResidueValueRs": 12000,
+  "harvestRecommendations": ["Specific tip 1", "Tip 2", "Tip 3"],
+  "balingRecommendations": ["Baling tip 1", "Tip 2"],
+  "urgency": "low/medium/high",
+  "urgencyReason": "Why they should act now or wait",
+  "bestTimeToSellResidue": "e.g. Immediately after baling in April"
+}
+
+Be specific to ${district}, ${state}. Use real seasonal patterns for this region.`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Harvest window error:', err.status, err.message);
+    res.status(500).json({ error: 'Harvest window prediction failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// PROCUREMENT FORECAST (INDUSTRY)
+// ────────────────────────────────────────────────────────────
+exports.procurementForecast = async (req, res) => {
+  const { industryType, district, state, monthsAhead = 1 } = req.body;
+  if (!industryType) return res.status(400).json({ error: 'Industry type is required' });
+
+  const currentMonth = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `You are a procurement strategy expert for Indian agri-industries. Current: ${currentMonth}.
+
+Industry Type: ${industryType}
+Location: ${district || 'Punjab'}, ${state || 'Punjab'}
+Forecast for: next ${monthsAhead} month(s)
+
+Generate procurement forecast. Return ONLY valid JSON:
+{
+  "industryType": "${industryType}",
+  "forecastPeriod": "e.g. June 2026",
+  "procurementNeeds": [
+    { "material": "Wheat straw", "estimatedQuantityTons": 150, "urgency": "high", "reason": "Why this material is needed now" },
+    { "material": "Rice husk", "estimatedQuantityTons": 80, "urgency": "medium", "reason": "..." }
+  ],
+  "recommendedSourceDistricts": [
+    { "district": "Ludhiana", "reason": "Surplus wheat this season, competitive pricing" },
+    { "district": "Amritsar", "reason": "..." }
+  ],
+  "priceOutlook": "bullish/stable/bearish",
+  "priceOutlookDetails": "2-sentence price trend explanation",
+  "orderTiming": "Order now / Wait 2 weeks / Urgent",
+  "orderTimingReason": "Why this timing is optimal",
+  "budgetEstimateRs": 850000,
+  "costSavingTips": ["Tip 1 to reduce procurement cost", "Tip 2", "Tip 3"],
+  "supplyRisks": ["Risk 1 to watch out for", "Risk 2"],
+  "aiSummary": "3-sentence executive summary for the procurement manager"
+}
+
+Base on real Punjab/Haryana seasonal crop cycles and ${industryType} industry needs.`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Procurement forecast error:', err.status, err.message);
+    res.status(500).json({ error: 'Procurement forecast failed. Please try again.' });
+  }
+};

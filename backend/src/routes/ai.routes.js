@@ -13,5 +13,8 @@ router.get('/market-insights', ai.marketInsights);
 router.post('/diagnose-disease', ai.diagnoseCropDisease);
 router.post('/generate-listing', ai.generateListing);
 router.post('/negotiation-advice', ai.negotiationAdvice);
+router.post('/route-planner', ai.routePlanner);
+router.post('/harvest-window', ai.harvestWindow);
+router.post('/procurement-forecast', ai.procurementForecast);
 
 module.exports = router;
