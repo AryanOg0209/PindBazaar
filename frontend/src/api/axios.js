@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 15000,
+  timeout: 90000,   // 90s — AI endpoints (Claude) can take 20-40s for complex prompts
 });
 
 // Attach JWT to every request

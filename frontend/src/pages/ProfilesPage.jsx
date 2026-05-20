@@ -129,7 +129,11 @@ export default function ProfilesPage() {
     try {
       const data = await planRoute(routeStops, routeVehicle, routeCargo);
       setRouteResult(data);
-    } catch (e) { setRouteError(e.response?.data?.error || 'Route planning failed.'); }
+      if (data.source === 'fallback') setRouteError(data.note || 'Showing estimated data (AI busy).');
+    } catch (e) {
+      const msg = e.response?.data?.error || (e.code === 'ECONNABORTED' ? 'Request timed out — backend may be busy. Please retry.' : 'Could not connect to server. Check backend is running.');
+      setRouteError(msg);
+    }
     finally { setRouteLoading(false); }
   };
 
@@ -139,7 +143,11 @@ export default function ProfilesPage() {
     try {
       const data = await getHarvestWindow(hwCrop, form.district, form.state, form.landAcres);
       setHwResult(data);
-    } catch (e) { setHwError(e.response?.data?.error || 'Analysis failed.'); }
+      if (data.source === 'fallback') setHwError(data.note || 'Showing seasonal estimates (AI busy).');
+    } catch (e) {
+      const msg = e.response?.data?.error || (e.code === 'ECONNABORTED' ? 'Request timed out — backend may be busy. Please retry.' : 'Could not connect to server. Check backend is running.');
+      setHwError(msg);
+    }
     finally { setHwLoading(false); }
   };
 
@@ -149,7 +157,11 @@ export default function ProfilesPage() {
     try {
       const data = await getProcurementForecast(form.industryType, form.district, form.state, pfMonths);
       setPfResult(data);
-    } catch (e) { setPfError(e.response?.data?.error || 'Forecast failed.'); }
+      if (data.source === 'fallback') setPfError(data.note || 'Showing estimated data (AI busy).');
+    } catch (e) {
+      const msg = e.response?.data?.error || (e.code === 'ECONNABORTED' ? 'Request timed out — backend may be busy. Please retry.' : 'Could not connect to server. Check backend is running.');
+      setPfError(msg);
+    }
     finally { setPfLoading(false); }
   };
 

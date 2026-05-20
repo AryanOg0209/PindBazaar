@@ -469,6 +469,34 @@ exports.routePlanner = async (req, res) => {
   const { stops, vehicleType, cargoType } = req.body;
   if (!stops || stops.length < 2) return res.status(400).json({ error: 'At least 2 stops required' });
 
+  // Build a realistic fallback based on stop count and vehicle
+  const buildRouteFallback = () => {
+    const mileage = (vehicleType || '').includes('truck') ? 12 : 8;
+    const estKm = stops.length * 28;
+    const fuelCost = Math.round((estKm / mileage) * 90);
+    const tollCost = stops.length > 2 ? 80 : 0;
+    const earnings = Math.round(estKm * 55);
+    return {
+      optimizedOrder: stops.map(s => s.location),
+      totalDistanceKm: estKm,
+      estimatedHours: +(estKm / 45).toFixed(1),
+      fuelCostRs: fuelCost,
+      tollCostRs: tollCost,
+      estimatedEarningsRs: earnings,
+      profitRs: earnings - fuelCost - tollCost,
+      routePlan: `Start from ${stops[0].location}, proceed via intermediate stops, deliver to ${stops[stops.length - 1].location}. Follow NH highways for best road conditions.`,
+      driverTips: [
+        'Depart early morning to avoid peak traffic and heat.',
+        'Carry a spare tyre and basic toolkit for long routes.',
+        'Check weight limits at each mandi entry point.',
+      ],
+      bestDepartureTime: '5:30 AM',
+      warnings: ['Verify mandi timings before departure — some open only 7AM-2PM.'],
+      source: 'fallback',
+      note: 'AI temporarily busy — showing estimated route data.',
+    };
+  };
+
   try {
     const json = await callWithRetry(async () => {
       const msg = await client.messages.create({
@@ -482,24 +510,10 @@ Vehicle: ${vehicleType || 'Tractor-Trolley'}
 Cargo: ${cargoType || 'Agricultural goods'}
 Stops in order: ${stops.map((s, i) => `${i + 1}. ${s.location} (${s.type})`).join(', ')}
 
-Plan the optimal route and return ONLY valid JSON:
-{
-  "optimizedOrder": ["Location1", "Location2", "Location3"],
-  "totalDistanceKm": 85,
-  "estimatedHours": 3.5,
-  "fuelCostRs": 650,
-  "tollCostRs": 120,
-  "estimatedEarningsRs": 4500,
-  "profitRs": 3730,
-  "routePlan": [
-    { "stop": "Location name", "action": "pickup/dropoff/rest", "distanceFromPrevKm": 0, "notes": "Tip for this stop" }
-  ],
-  "driverTips": ["Tip 1 for safe/efficient driving on this route", "Tip 2"],
-  "bestDepartureTime": "6:00 AM",
-  "warnings": ["Any road/seasonal warning if applicable"]
-}
+Plan the optimal route and return ONLY valid JSON (no markdown):
+{"optimizedOrder":["Location1","Location2"],"totalDistanceKm":85,"estimatedHours":3.5,"fuelCostRs":650,"tollCostRs":120,"estimatedEarningsRs":4500,"profitRs":3730,"routePlan":"Brief narrative of the route","driverTips":["Tip 1","Tip 2"],"bestDepartureTime":"6:00 AM","warnings":["Warning if any"]}
 
-Use realistic Punjab/Haryana road distances, diesel price ~₹90/L, mileage ~8km/L for tractor-trolley or ~12km/L for truck.`
+Use realistic Punjab/Haryana road distances, diesel ~₹90/L, mileage ~8km/L for tractor-trolley or ~12km/L for truck.`
         }]
       });
       return extractJSON(msg.content[0].text);
@@ -507,18 +521,37 @@ Use realistic Punjab/Haryana road distances, diesel price ~₹90/L, mileage ~8km
     res.json({ ...json, source: 'ai' });
   } catch (err) {
     console.error('[AI] Route planner error:', err.status, err.message);
-    res.status(500).json({ error: 'Route planning failed. Please try again.' });
+    return res.json(buildRouteFallback());
   }
 };
 
 // ────────────────────────────────────────────────────────────
 // HARVEST & BALING WINDOW PREDICTOR (FARMER + BALER)
 // ────────────────────────────────────────────────────────────
+const HARVEST_FALLBACK = {
+  Wheat:     { harvestWindowStart:'10 April', harvestWindowEnd:'30 April', peakHarvestDays:'15-25 April', balingWindowStart:'16 April', balingWindowEnd:'5 May', rainRisk:'low', expectedYieldTons:22, expectedResidueValueRs:14000, urgency:'medium', bestTimeToSellResidue:'Immediately after baling in April', harvestRecommendations:['Harvest when grain moisture is below 14%','Use combine harvester for best efficiency','Avoid harvesting during afternoon heat above 40°C'], balingRecommendations:['Bale within 24 hours of harvest for best quality residue','Target 18-20% moisture in straw for baling','Arrange baler booking at least 3 days in advance'] },
+  Paddy:     { harvestWindowStart:'1 October', harvestWindowEnd:'20 October', peakHarvestDays:'5-15 October', balingWindowStart:'7 October', balingWindowEnd:'25 October', rainRisk:'medium', expectedYieldTons:18, expectedResidueValueRs:9000, urgency:'high', bestTimeToSellResidue:'October, before winter fog sets in', harvestRecommendations:['Drain field 10 days before harvest','Harvest at 20-22% grain moisture to prevent shattering','Check mandi procurement schedule before harvesting'], balingRecommendations:['Paddy straw dries slower — allow 2 extra days','Do not bale wet straw — risk of mold and fire','High demand from biogas plants in October-November'] },
+  Sugarcane: { harvestWindowStart:'15 November', harvestWindowEnd:'28 February', peakHarvestDays:'December-January', balingWindowStart:'16 November', balingWindowEnd:'1 March', rainRisk:'low', expectedYieldTons:45, expectedResidueValueRs:8000, urgency:'low', bestTimeToSellResidue:'January-February when demand peaks', harvestRecommendations:['Harvest in cool morning hours for better sucrose content','Deliver to mill within 24 hours of cutting','Coordinate with mill for crushing slot booking'], balingRecommendations:['Trash/tops can be baled for cattle feed','Dry trash for 3-4 days before baling','Mills often buy back trash — check your nearest mill'] },
+  Cotton:    { harvestWindowStart:'20 September', harvestWindowEnd:'30 November', peakHarvestDays:'October', balingWindowStart:'21 September', balingWindowEnd:'5 December', rainRisk:'medium', expectedYieldTons:8, expectedResidueValueRs:5000, urgency:'medium', bestTimeToSellResidue:'October-November', harvestRecommendations:['Pick when 60% bolls are open','Multiple picking rounds — 3-4 pickings typically','Store picked cotton away from moisture'], balingRecommendations:['Cotton stalks are valuable for paper mills','Chop and bale stalks after final picking','Book baler 1 week in advance — high demand in cotton belt'] },
+  Mustard:   { harvestWindowStart:'1 March', harvestWindowEnd:'20 March', peakHarvestDays:'5-15 March', balingWindowStart:'3 March', balingWindowEnd:'25 March', rainRisk:'low', expectedYieldTons:6, expectedResidueValueRs:4000, urgency:'medium', bestTimeToSellResidue:'March, before wheat harvest rush starts', harvestRecommendations:['Harvest when 75% siliques turn golden','Cut in cool morning to reduce shattering losses','Thresh within 2 days of cutting'], balingRecommendations:['Mustard straw is excellent cattle fodder','Bale immediately — mustard straw dries fast','Price: ₹150-200/quintal at local cattle markets'] },
+  Maize:     { harvestWindowStart:'15 September', harvestWindowEnd:'5 October', peakHarvestDays:'20-30 September', balingWindowStart:'17 September', balingWindowEnd:'10 October', rainRisk:'medium', expectedYieldTons:12, expectedResidueValueRs:7000, urgency:'medium', bestTimeToSellResidue:'September-October', harvestRecommendations:['Harvest when husk turns brown and grain is hard','Dry grain to below 13% before storage','Watch for fall armyworm damage before harvest'], balingRecommendations:['Maize stalks are high-value silage material','Chop and ensile immediately for dairy farms','Bale dried stalks for industrial biomass buyers'] },
+  Barley:    { harvestWindowStart:'20 March', harvestWindowEnd:'5 April', peakHarvestDays:'25-31 March', balingWindowStart:'22 March', balingWindowEnd:'8 April', rainRisk:'low', expectedYieldTons:14, expectedResidueValueRs:6000, urgency:'low', bestTimeToSellResidue:'March-April', harvestRecommendations:['Harvest at dough stage for malting barley','Avoid lodging losses by harvesting early morning','Check brewery/malteries for contract rates'], balingRecommendations:['Barley straw is softest cattle bedding material','Premium pricing: ₹180-220/quintal','Export quality straw for mushroom cultivation'] },
+  Soybean:   { harvestWindowStart:'1 October', harvestWindowEnd:'20 October', peakHarvestDays:'5-15 October', balingWindowStart:'3 October', balingWindowEnd:'22 October', rainRisk:'medium', expectedYieldTons:7, expectedResidueValueRs:4500, urgency:'medium', bestTimeToSellResidue:'October', harvestRecommendations:['Harvest when pods are brown and leaves fallen','Check for pod shatter — harvest in cool morning','Moisture should be 13-15% at harvest'], balingRecommendations:['Soybean stover has moderate biomass value','Disc stalks and windrow for easier baling','Demand from paper mills and biomass plants'] },
+};
+
 exports.harvestWindow = async (req, res) => {
   const { cropType, district, state, landAcres } = req.body;
   if (!cropType) return res.status(400).json({ error: 'Crop type is required' });
 
+  const acres = parseFloat(landAcres) || 5;
   const currentMonth = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+  const buildFallback = () => {
+    const base = HARVEST_FALLBACK[cropType] || HARVEST_FALLBACK['Wheat'];
+    const yieldTons = +(base.expectedYieldTons * (acres / 5)).toFixed(1);
+    const residueVal = Math.round(base.expectedResidueValueRs * (acres / 5));
+    return { ...base, cropType, district: district || 'Punjab', expectedYieldTons: yieldTons, expectedResidueValueRs: residueVal, source: 'fallback', note: 'AI temporarily busy — showing seasonal estimates for your region.' };
+  };
 
   try {
     const json = await callWithRetry(async () => {
@@ -527,34 +560,10 @@ exports.harvestWindow = async (req, res) => {
         max_tokens: 800,
         messages: [{
           role: 'user',
-          content: `You are an agricultural timing expert for Punjab/Haryana India. Current month: ${currentMonth}.
+          content: `Agricultural timing expert for Punjab/Haryana. Current: ${currentMonth}. Crop: ${cropType}, District: ${district || 'Punjab'}, Land: ${acres} acres.
 
-Crop: ${cropType}
-District: ${district || 'Punjab'}
-State: ${state || 'Punjab'}
-Land: ${landAcres || 'unknown'} acres
-
-Predict the optimal harvest and baling window. Return ONLY valid JSON:
-{
-  "cropType": "${cropType}",
-  "harvestWindowStart": "e.g. 15 April 2026",
-  "harvestWindowEnd": "e.g. 30 April 2026",
-  "peakHarvestDays": "e.g. 20-25 April",
-  "balingWindowStart": "e.g. 21 April 2026",
-  "balingWindowEnd": "e.g. 5 May 2026",
-  "rainRisk": "low/medium/high",
-  "rainRiskDetails": "Brief explanation of rain outlook for this period",
-  "expectedYieldTons": 18.5,
-  "expectedBiomassResiduePercent": 45,
-  "expectedResidueValueRs": 12000,
-  "harvestRecommendations": ["Specific tip 1", "Tip 2", "Tip 3"],
-  "balingRecommendations": ["Baling tip 1", "Tip 2"],
-  "urgency": "low/medium/high",
-  "urgencyReason": "Why they should act now or wait",
-  "bestTimeToSellResidue": "e.g. Immediately after baling in April"
-}
-
-Be specific to ${district}, ${state}. Use real seasonal patterns for this region.`
+Return ONLY valid JSON (no markdown):
+{"cropType":"${cropType}","harvestWindowStart":"DD Month YYYY","harvestWindowEnd":"DD Month YYYY","peakHarvestDays":"DD-DD Month","balingWindowStart":"DD Month YYYY","balingWindowEnd":"DD Month YYYY","rainRisk":"low","expectedYieldTons":${Math.round(acres*4)},"expectedResidueValueRs":${Math.round(acres*2800)},"harvestRecommendations":["tip1","tip2","tip3"],"balingRecommendations":["tip1","tip2"],"urgency":"medium","bestTimeToSellResidue":"Month period"}`
         }]
       });
       return extractJSON(msg.content[0].text);
@@ -562,55 +571,61 @@ Be specific to ${district}, ${state}. Use real seasonal patterns for this region
     res.json({ ...json, source: 'ai' });
   } catch (err) {
     console.error('[AI] Harvest window error:', err.status, err.message);
-    res.status(500).json({ error: 'Harvest window prediction failed. Please try again.' });
+    return res.json(buildFallback());
   }
 };
 
 // ────────────────────────────────────────────────────────────
 // PROCUREMENT FORECAST (INDUSTRY)
 // ────────────────────────────────────────────────────────────
+const PROCUREMENT_FALLBACK = {
+  'Flour Mill':       { needs:[{material:'Wheat',estimatedQuantityTons:500,urgency:'high'},{material:'Wheat Bran',estimatedQuantityTons:50,urgency:'medium'}], districts:[{district:'Ludhiana',reason:'Largest wheat trading hub in Punjab'},{district:'Sangrur',reason:'High surplus wheat with competitive farm-gate prices'},{district:'Patiala',reason:'Good road connectivity to mills'}], priceOutlook:'stable', orderTiming:'Order now', budgetEstimateRs:1250000, tips:['Buy directly from Arhtiyas at APMC mandi to save 3-5%','Lock in forward contracts for April-May delivery during harvest season','Blend hard and soft wheat varieties for optimal flour quality'], risks:['Late monsoon can affect wheat quality','Export demand spikes may raise prices in Nov-Dec'] },
+  'Rice Mill':        { needs:[{material:'Paddy (PR-126)',estimatedQuantityTons:300,urgency:'high'},{material:'Paddy (Basmati)',estimatedQuantityTons:100,urgency:'medium'}], districts:[{district:'Amritsar',reason:'Largest Basmati growing district'},{district:'Gurdaspur',reason:'High paddy yield this season'},{district:'Kapurthala',reason:'PR-126 surplus, competitive pricing'}], priceOutlook:'bullish', orderTiming:'Order now — procurement season ending', budgetEstimateRs:750000, tips:['Buy PR-126 at MSP during October procurement drives','Maintain 25% Basmati mix for premium export margin','Inspect moisture content below 17% before purchase'], risks:['Paddy procurement windows are short (Oct-Nov only)','Export regulations can affect Basmati price'] },
+  'Cotton Gin':       { needs:[{material:'Raw Cotton (Desi)',estimatedQuantityTons:150,urgency:'high'},{material:'Raw Cotton (BT)',estimatedQuantityTons:300,urgency:'high'}], districts:[{district:'Bathinda',reason:'Largest cotton belt in Punjab'},{district:'Mansa',reason:'BT cotton surplus, quality lint'},{district:'Muktsar',reason:'Competitive farm-gate prices'}], priceOutlook:'bullish', orderTiming:'Order immediately — peak season Oct-Nov', budgetEstimateRs:2250000, tips:['Book truck fleet in advance for cotton season','Inspect staple length and moisture before purchase','Set up direct farmer procurement to bypass mandi fees'], risks:['Pink bollworm attack can reduce quality','Weather delays can compress procurement window'] },
+  'Sugar Mill':       { needs:[{material:'Sugarcane',estimatedQuantityTons:5000,urgency:'high'},{material:'Sugarcane Tops/Trash',estimatedQuantityTons:500,urgency:'low'}], districts:[{district:'Jalandhar',reason:'Large sugarcane acreage, SAP-compliant farmers'},{district:'Hoshiarpur',reason:'High Brix content cane this season'},{district:'Nawanshahr',reason:'Good infrastructure for cane transport'}], priceOutlook:'stable', orderTiming:'Plan for Nov-Feb crushing season', budgetEstimateRs:6250000, tips:['Issue cane slips to farmers 3 weeks before crushing','Stagger zone-wise arrivals to avoid yard congestion','Coordinate with transport unions for fixed rate contracts'], risks:['Delayed monsoon withdrawal may push start date','Farmer agitation over SAP payments can disrupt supply'] },
+  'Biogas Plant':     { needs:[{material:'Paddy Straw',estimatedQuantityTons:200,urgency:'high'},{material:'Cattle Dung (linked farms)',estimatedQuantityTons:100,urgency:'medium'}], districts:[{district:'Patiala',reason:'High paddy straw surplus, burning restrictions create seller urgency'},{district:'Ludhiana',reason:'Good baler network available'},{district:'Fatehgarh Sahib',reason:'Active FPOs for straw aggregation'}], priceOutlook:'bearish', orderTiming:'October — right after paddy harvest', budgetEstimateRs:350000, tips:['Partner with balers directly for regular supply at ₹150-180/quintal','Leverage government anti-stubble burning incentives','Ensure moisture <20% for optimal biogas yield'], risks:['Weather delays in paddy harvest reduce availability window','Competition from paper mills and biomass plants'] },
+};
+
 exports.procurementForecast = async (req, res) => {
   const { industryType, district, state, monthsAhead = 1 } = req.body;
   if (!industryType) return res.status(400).json({ error: 'Industry type is required' });
 
   const currentMonth = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  const months = parseInt(monthsAhead) || 1;
+
+  const buildFallback = () => {
+    // Match by keyword if exact key not found
+    const key = Object.keys(PROCUREMENT_FALLBACK).find(k => industryType.toLowerCase().includes(k.toLowerCase().split(' ')[0])) || 'Flour Mill';
+    const base = PROCUREMENT_FALLBACK[key];
+    const scale = months;
+    return {
+      industryType,
+      forecastPeriod: `Next ${months} month${months > 1 ? 's' : ''}`,
+      procurementNeeds: base.needs.map(n => ({ ...n, estimatedQuantityTons: n.estimatedQuantityTons * scale })),
+      recommendedSourceDistricts: base.districts,
+      priceOutlook: base.priceOutlook,
+      priceOutlookDetails: `Market prices for ${industryType} raw materials are expected to remain ${base.priceOutlook} over the next ${months} months based on current crop cycles in Punjab/Haryana.`,
+      orderTiming: base.orderTiming,
+      budgetEstimateRs: base.budgetEstimateRs * scale,
+      costSavingTips: base.tips,
+      supplyRisks: base.risks,
+      aiSummary: `Based on current Punjab/Haryana agri-market conditions, your ${industryType} operation should plan procurement for the next ${months} month(s) focusing on key districts. Price trends are ${base.priceOutlook} — act on the timing recommendation above to optimize your input costs. Monitor supply risks listed below and maintain at least 30% buffer stock.`,
+      source: 'fallback',
+      note: 'AI temporarily busy — showing seasonal estimates for your industry.',
+    };
+  };
 
   try {
     const json = await callWithRetry(async () => {
       const msg = await client.messages.create({
         model: MODEL,
-        max_tokens: 1000,
+        max_tokens: 900,
         messages: [{
           role: 'user',
-          content: `You are a procurement strategy expert for Indian agri-industries. Current: ${currentMonth}.
+          content: `Procurement expert for Indian agri-industries. Current: ${currentMonth}. Industry: ${industryType}, Location: ${district || 'Punjab'}, ${state || 'Punjab'}, Forecast: next ${months} month(s).
 
-Industry Type: ${industryType}
-Location: ${district || 'Punjab'}, ${state || 'Punjab'}
-Forecast for: next ${monthsAhead} month(s)
-
-Generate procurement forecast. Return ONLY valid JSON:
-{
-  "industryType": "${industryType}",
-  "forecastPeriod": "e.g. June 2026",
-  "procurementNeeds": [
-    { "material": "Wheat straw", "estimatedQuantityTons": 150, "urgency": "high", "reason": "Why this material is needed now" },
-    { "material": "Rice husk", "estimatedQuantityTons": 80, "urgency": "medium", "reason": "..." }
-  ],
-  "recommendedSourceDistricts": [
-    { "district": "Ludhiana", "reason": "Surplus wheat this season, competitive pricing" },
-    { "district": "Amritsar", "reason": "..." }
-  ],
-  "priceOutlook": "bullish/stable/bearish",
-  "priceOutlookDetails": "2-sentence price trend explanation",
-  "orderTiming": "Order now / Wait 2 weeks / Urgent",
-  "orderTimingReason": "Why this timing is optimal",
-  "budgetEstimateRs": 850000,
-  "costSavingTips": ["Tip 1 to reduce procurement cost", "Tip 2", "Tip 3"],
-  "supplyRisks": ["Risk 1 to watch out for", "Risk 2"],
-  "aiSummary": "3-sentence executive summary for the procurement manager"
-}
-
-Base on real Punjab/Haryana seasonal crop cycles and ${industryType} industry needs.`
+Return ONLY valid JSON (no markdown):
+{"industryType":"${industryType}","forecastPeriod":"next ${months} months","procurementNeeds":[{"material":"Material name","estimatedQuantityTons":100,"urgency":"high"},{"material":"Material 2","estimatedQuantityTons":50,"urgency":"medium"}],"recommendedSourceDistricts":[{"district":"District 1","reason":"reason"},{"district":"District 2","reason":"reason"}],"priceOutlook":"stable","priceOutlookDetails":"2-sentence trend","orderTiming":"Order now","budgetEstimateRs":500000,"costSavingTips":["tip1","tip2","tip3"],"supplyRisks":["risk1","risk2"],"aiSummary":"3-sentence executive summary"}`
         }]
       });
       return extractJSON(msg.content[0].text);
@@ -618,6 +633,6 @@ Base on real Punjab/Haryana seasonal crop cycles and ${industryType} industry ne
     res.json({ ...json, source: 'ai' });
   } catch (err) {
     console.error('[AI] Procurement forecast error:', err.status, err.message);
-    res.status(500).json({ error: 'Procurement forecast failed. Please try again.' });
+    return res.json(buildFallback());
   }
 };
