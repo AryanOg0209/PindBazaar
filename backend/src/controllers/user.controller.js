@@ -153,9 +153,11 @@ async function updateProfile(req, res) {
 async function uploadDocuments(req, res) {
   try {
     const user = req.user;
-    const files = req.files;
+    // upload.fields() gives an object keyed by field name; flatten to array
+    const filesObj = req.files || {};
+    const files = Object.values(filesObj).flat();
 
-    if (!files || files.length === 0) {
+    if (files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
@@ -170,6 +172,28 @@ async function uploadDocuments(req, res) {
         })
       )
     );
+
+    // Trigger Aadhaar verification asynchronously
+    const aadhaarDoc = docs.find(d => d.docType === 'aadhaar');
+    if (aadhaarDoc) {
+      const { analyzeAadhaarDocument } = require('./verification.controller');
+      let profile = null;
+      try {
+        if (user.role === 'farmer') profile = await prisma.farmerProfile.findUnique({ where: { userId: user.id } });
+        else if (user.role === 'industry') profile = await prisma.industryProfile.findUnique({ where: { userId: user.id } });
+        else if (user.role === 'baler') profile = await prisma.balerProfile.findUnique({ where: { userId: user.id } });
+        else if (user.role === 'mover') profile = await prisma.moverProfile.findUnique({ where: { userId: user.id } });
+      } catch {}
+      const profileData = {
+        name: user.name,
+        village: profile?.village,
+        district: profile?.district,
+        state: profile?.state,
+        pincode: profile?.pincode,
+        role: user.role,
+      };
+      analyzeAadhaarDocument(aadhaarDoc.id, user.id, profileData).catch(console.error);
+    }
 
     res.json({ documents: docs });
   } catch (err) {

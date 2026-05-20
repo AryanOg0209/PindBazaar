@@ -14,3 +14,12 @@ export const getEarningsSummary = () =>
 
 export const getMarketInsights = () =>
   api.get('/ai/market-insights').then(r => r.data);
+
+export const planRoute = (stops, vehicleType, cargoType) =>
+  api.post('/ai/route-planner', { stops, vehicleType, cargoType }).then(r => r.data);
+
+export const getHarvestWindow = (cropType, district, state, landAcres) =>
+  api.post('/ai/harvest-window', { cropType, district, state, landAcres }).then(r => r.data);
+
+export const getProcurementForecast = (industryType, district, state, monthsAhead) =>
+  api.post('/ai/procurement-forecast', { industryType, district, state, monthsAhead }).then(r => r.data);

@@ -15,16 +15,17 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Static uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-const marketRoutes    = require('./routes/market.routes');
-const orderRoutes     = require('./routes/order.routes');
-const aiRoutes        = require('./routes/ai.routes');
-const dashboardRoutes = require('./routes/dashboard.routes');
+const marketRoutes        = require('./routes/market.routes');
+const orderRoutes         = require('./routes/order.routes');
+const aiRoutes            = require('./routes/ai.routes');
+const dashboardRoutes     = require('./routes/dashboard.routes');
+const verificationRoutes  = require('./routes/verification.routes');
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -35,6 +36,7 @@ app.use('/api/market',     marketRoutes);
 app.use('/api/orders',     orderRoutes);
 app.use('/api/ai',         aiRoutes);
 app.use('/api/dashboard',  dashboardRoutes);
+app.use('/api/verification', verificationRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));

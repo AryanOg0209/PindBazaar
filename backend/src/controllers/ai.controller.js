@@ -3,7 +3,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const MODEL = 'claude-haiku-4-5';
+const MODEL = 'claude-sonnet-4-6';
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── Retry helper with exponential backoff ──
@@ -14,11 +14,12 @@ async function callWithRetry(fn, retries = 3, delayMs = 1000) {
     } catch (err) {
       const isRetryable = err.status === 529 || err.status === 503 || err.status === 429;
       if (isRetryable && i < retries - 1) {
-        const wait = delayMs * Math.pow(2, i); // 1s, 2s, 4s
+        const wait = delayMs * Math.pow(2, i);
         console.log(`Claude overloaded (${err.status}), retrying in ${wait}ms...`);
         await new Promise(r => setTimeout(r, wait));
         continue;
       }
+      console.error(`[AI] Claude API error: status=${err.status} message=${err.message}`);
       throw err;
     }
   }
@@ -310,5 +311,313 @@ exports.marketInsights = async (req, res) => {
   } catch (err) {
     console.error('Market insights error:', err.message);
     res.status(500).json({ error: 'Failed to load market insights' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// CROP DISEASE SCANNER
+// ────────────────────────────────────────────────────────────
+exports.diagnoseCropDisease = async (req, res) => {
+  const { imageBase64, mediaType } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'No image data provided' });
+
+  try {
+    const response = await callWithRetry(async () => client.messages.create({
+      model: MODEL,
+      max_tokens: 900,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 }
+          },
+          {
+            type: 'text',
+            text: `You are an expert agricultural disease diagnostician for Punjab and Haryana, India. Carefully analyze this crop image.
+
+Return ONLY valid JSON, no markdown:
+{
+  "cropType": "wheat/rice/cotton/mustard/sugarcane/maize/other/unknown",
+  "disease": "Exact disease name, or 'Healthy' if no disease detected",
+  "severity": "none/mild/moderate/severe",
+  "confidence": 85,
+  "symptoms": ["visible symptom 1", "visible symptom 2"],
+  "treatment": ["Immediate step 1", "Step 2", "Step 3"],
+  "prevention": ["Prevention tip 1", "Prevention tip 2"],
+  "urgency": "low/medium/high",
+  "summary": "2-sentence plain-language summary for a Punjab farmer"
+}
+
+If image is not a crop or is unclear: set disease="Unable to analyze", confidence=0, urgency="low".`
+          }
+        ]
+      }]
+    }));
+
+    const text = response.content[0].text.trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON in Claude response');
+    res.json({ ...JSON.parse(match[0]), source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Disease diagnosis error:', err.status, err.message);
+    res.status(500).json({ error: 'Diagnosis failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// AI LISTING GENERATOR
+// ────────────────────────────────────────────────────────────
+exports.generateListing = async (req, res) => {
+  const { description, role, district } = req.body;
+  if (!description) return res.status(400).json({ error: 'Description is required' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 600,
+        messages: [{
+          role: 'user',
+          content: `You are a marketplace listing expert for PindBazaar, an agricultural marketplace in Punjab/Haryana India.
+
+User (${role || 'farmer'} from ${district || 'Punjab'}) described: "${description}"
+
+Generate a professional marketplace listing. Return ONLY valid JSON:
+{
+  "type": "demand or supply or job",
+  "title": "Clear, specific listing title (max 60 chars)",
+  "description": "Professional 2-3 sentence description with key details",
+  "cropType": "Wheat/Paddy/Cotton/Mustard/Sugarcane/Maize/Barley/Soybean or empty string if not applicable",
+  "quantity": 50,
+  "price": 2500,
+  "location": "Village/Area, District name",
+  "priceReasoning": "One sentence explaining why this price is fair for current market"
+}
+
+Rules:
+- type=supply if selling/offering, type=demand if buying/requesting, type=job if offering a service
+- price should be realistic for Punjab/Haryana market rates in ₹
+- quantity in metric tons for crops, acres for land work, count for vehicles
+- location based on district: ${district || 'Punjab'}`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Listing generator error:', err.status, err.message);
+    res.status(500).json({ error: 'Listing generation failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// NEGOTIATION ADVISOR
+// ────────────────────────────────────────────────────────────
+exports.negotiationAdvice = async (req, res) => {
+  const { listingTitle, listingPrice, cropType, location, listingType, userRole } = req.body;
+  if (!listingTitle) return res.status(400).json({ error: 'Listing details required' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: `You are a market negotiation advisor for PindBazaar, Punjab/Haryana agricultural marketplace.
+
+Listing: "${listingTitle}"
+Listed Price: ₹${listingPrice || 'Not specified'}
+Crop/Material: ${cropType || 'General'}
+Location: ${location || 'Punjab'}
+Listing Type: ${listingType || 'demand'}
+User Role: ${userRole || 'farmer'}
+
+Analyze this deal and advise whether to accept, counter-offer, or skip.
+Return ONLY valid JSON:
+{
+  "verdict": "accept or counter or skip",
+  "fairPrice": 4500,
+  "marketMin": 3800,
+  "marketMax": 5200,
+  "counterOffer": 4200,
+  "confidence": 80,
+  "reasoning": "2-3 sentence explanation of why this price is good/bad and what to do",
+  "tip": "One practical negotiation tip for this specific deal"
+}
+
+verdict rules:
+- "accept" if price is at or above fair market value
+- "counter" if price is within 20% below fair value (negotiate up)
+- "skip" if price is unrealistically low or deal looks unfavorable`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Negotiation advice error:', err.status, err.message);
+    res.status(500).json({ error: 'Could not get negotiation advice.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// SMART ROUTE PLANNER (MOVER)
+// ────────────────────────────────────────────────────────────
+exports.routePlanner = async (req, res) => {
+  const { stops, vehicleType, cargoType } = req.body;
+  if (!stops || stops.length < 2) return res.status(400).json({ error: 'At least 2 stops required' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 900,
+        messages: [{
+          role: 'user',
+          content: `You are a route optimization expert for Punjab/Haryana agricultural logistics.
+
+Vehicle: ${vehicleType || 'Tractor-Trolley'}
+Cargo: ${cargoType || 'Agricultural goods'}
+Stops in order: ${stops.map((s, i) => `${i + 1}. ${s.location} (${s.type})`).join(', ')}
+
+Plan the optimal route and return ONLY valid JSON:
+{
+  "optimizedOrder": ["Location1", "Location2", "Location3"],
+  "totalDistanceKm": 85,
+  "estimatedHours": 3.5,
+  "fuelCostRs": 650,
+  "tollCostRs": 120,
+  "estimatedEarningsRs": 4500,
+  "profitRs": 3730,
+  "routePlan": [
+    { "stop": "Location name", "action": "pickup/dropoff/rest", "distanceFromPrevKm": 0, "notes": "Tip for this stop" }
+  ],
+  "driverTips": ["Tip 1 for safe/efficient driving on this route", "Tip 2"],
+  "bestDepartureTime": "6:00 AM",
+  "warnings": ["Any road/seasonal warning if applicable"]
+}
+
+Use realistic Punjab/Haryana road distances, diesel price ~₹90/L, mileage ~8km/L for tractor-trolley or ~12km/L for truck.`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Route planner error:', err.status, err.message);
+    res.status(500).json({ error: 'Route planning failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// HARVEST & BALING WINDOW PREDICTOR (FARMER + BALER)
+// ────────────────────────────────────────────────────────────
+exports.harvestWindow = async (req, res) => {
+  const { cropType, district, state, landAcres } = req.body;
+  if (!cropType) return res.status(400).json({ error: 'Crop type is required' });
+
+  const currentMonth = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 800,
+        messages: [{
+          role: 'user',
+          content: `You are an agricultural timing expert for Punjab/Haryana India. Current month: ${currentMonth}.
+
+Crop: ${cropType}
+District: ${district || 'Punjab'}
+State: ${state || 'Punjab'}
+Land: ${landAcres || 'unknown'} acres
+
+Predict the optimal harvest and baling window. Return ONLY valid JSON:
+{
+  "cropType": "${cropType}",
+  "harvestWindowStart": "e.g. 15 April 2026",
+  "harvestWindowEnd": "e.g. 30 April 2026",
+  "peakHarvestDays": "e.g. 20-25 April",
+  "balingWindowStart": "e.g. 21 April 2026",
+  "balingWindowEnd": "e.g. 5 May 2026",
+  "rainRisk": "low/medium/high",
+  "rainRiskDetails": "Brief explanation of rain outlook for this period",
+  "expectedYieldTons": 18.5,
+  "expectedBiomassResiduePercent": 45,
+  "expectedResidueValueRs": 12000,
+  "harvestRecommendations": ["Specific tip 1", "Tip 2", "Tip 3"],
+  "balingRecommendations": ["Baling tip 1", "Tip 2"],
+  "urgency": "low/medium/high",
+  "urgencyReason": "Why they should act now or wait",
+  "bestTimeToSellResidue": "e.g. Immediately after baling in April"
+}
+
+Be specific to ${district}, ${state}. Use real seasonal patterns for this region.`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Harvest window error:', err.status, err.message);
+    res.status(500).json({ error: 'Harvest window prediction failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// PROCUREMENT FORECAST (INDUSTRY)
+// ────────────────────────────────────────────────────────────
+exports.procurementForecast = async (req, res) => {
+  const { industryType, district, state, monthsAhead = 1 } = req.body;
+  if (!industryType) return res.status(400).json({ error: 'Industry type is required' });
+
+  const currentMonth = new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `You are a procurement strategy expert for Indian agri-industries. Current: ${currentMonth}.
+
+Industry Type: ${industryType}
+Location: ${district || 'Punjab'}, ${state || 'Punjab'}
+Forecast for: next ${monthsAhead} month(s)
+
+Generate procurement forecast. Return ONLY valid JSON:
+{
+  "industryType": "${industryType}",
+  "forecastPeriod": "e.g. June 2026",
+  "procurementNeeds": [
+    { "material": "Wheat straw", "estimatedQuantityTons": 150, "urgency": "high", "reason": "Why this material is needed now" },
+    { "material": "Rice husk", "estimatedQuantityTons": 80, "urgency": "medium", "reason": "..." }
+  ],
+  "recommendedSourceDistricts": [
+    { "district": "Ludhiana", "reason": "Surplus wheat this season, competitive pricing" },
+    { "district": "Amritsar", "reason": "..." }
+  ],
+  "priceOutlook": "bullish/stable/bearish",
+  "priceOutlookDetails": "2-sentence price trend explanation",
+  "orderTiming": "Order now / Wait 2 weeks / Urgent",
+  "orderTimingReason": "Why this timing is optimal",
+  "budgetEstimateRs": 850000,
+  "costSavingTips": ["Tip 1 to reduce procurement cost", "Tip 2", "Tip 3"],
+  "supplyRisks": ["Risk 1 to watch out for", "Risk 2"],
+  "aiSummary": "3-sentence executive summary for the procurement manager"
+}
+
+Base on real Punjab/Haryana seasonal crop cycles and ${industryType} industry needs.`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Procurement forecast error:', err.status, err.message);
+    res.status(500).json({ error: 'Procurement forecast failed. Please try again.' });
   }
 };

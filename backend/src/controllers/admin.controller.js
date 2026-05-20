@@ -101,7 +101,7 @@ async function getApplication(req, res) {
     const { id } = req.params;
     const user = await prisma.user.findUnique({
       where: { id },
-      include: PROFILE_INCLUDE,
+      include: { ...PROFILE_INCLUDE, aadhaarVerification: true },
     });
 
     if (!user) return res.status(404).json({ error: 'User not found' });
