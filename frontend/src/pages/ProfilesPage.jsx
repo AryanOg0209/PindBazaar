@@ -41,6 +41,12 @@ export default function ProfilesPage() {
   const [matchError, setMatchError]   = useState('');
   const [matchNote, setMatchNote]     = useState('');
   const [verification, setVerification] = useState(null);
+  // Disease scanner
+  const [diseaseImage, setDiseaseImage]   = useState(null);
+  const [diseasePreview, setDiseasePreview] = useState('');
+  const [diagnosing, setDiagnosing]       = useState(false);
+  const [diagnosis, setDiagnosis]         = useState(null);
+  const [diagError, setDiagError]         = useState('');
 
   useEffect(() => {
     api.get('/user/profile').then(res => {
@@ -61,6 +67,40 @@ export default function ProfilesPage() {
       setTimeout(() => setSaved(false), 3000);
     } catch (e) { alert('Failed to save profile'); }
     finally { setSaving(false); }
+  };
+
+  const handleDiseaseImage = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setDiseaseImage(file);
+    setDiagnosis(null);
+    setDiagError('');
+    const reader = new FileReader();
+    reader.onload = ev => setDiseasePreview(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleDiagnose = async () => {
+    if (!diseaseImage) return;
+    setDiagnosing(true); setDiagnosis(null); setDiagError('');
+    try {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target.result;
+        const base64 = dataUrl.split(',')[1];
+        const mediaType = diseaseImage.type || 'image/jpeg';
+        try {
+          const res = await api.post('/ai/diagnose-disease', { imageBase64: base64, mediaType });
+          setDiagnosis(res.data);
+        } catch (e) {
+          setDiagError(e.response?.data?.error || 'Diagnosis failed. Please try again.');
+        } finally { setDiagnosing(false); }
+      };
+      reader.readAsDataURL(diseaseImage);
+    } catch (e) {
+      setDiagError('Failed to process image.');
+      setDiagnosing(false);
+    }
   };
 
   const handleCropPredict = async () => {
@@ -213,6 +253,94 @@ export default function ProfilesPage() {
                         <strong>Key Factors:</strong><br/>
                         {prediction.factors?.map((f,i) => <span key={i}>• {f}<br/></span>)}
                       </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Crop Disease Scanner */}
+                <div style={{ background: 'white', borderRadius: 16, padding: 24, boxShadow: '0 4px 12px rgba(0,0,0,.06)' }}>
+                  <h3 style={{ margin: '0 0 4px', fontWeight: 800, fontSize: 17 }}>🔬 AI Crop Disease Scanner</h3>
+                  <p style={{ margin: '0 0 16px', color: '#64748B', fontSize: 13 }}>Upload a photo of your crop — Claude AI will diagnose any disease and suggest treatment</p>
+
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '0 0 auto' }}>
+                      <label htmlFor="disease-img" style={{ display: 'block', width: 140, height: 140, borderRadius: 12, border: '2px dashed #CBD5E1', background: diseasePreview ? 'transparent' : '#F8FAFC', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}>
+                        {diseasePreview
+                          ? <img src={diseasePreview} alt="crop" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8 }}>
+                              <span style={{ fontSize: 32 }}>📷</span>
+                              <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 600, textAlign: 'center' }}>Tap to upload crop photo</span>
+                            </div>
+                        }
+                        <input id="disease-img" type="file" accept="image/*" style={{ display: 'none' }} onChange={handleDiseaseImage} />
+                      </label>
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      {diseaseImage && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#475569' }}>📁 {diseaseImage.name}</div>
+                          <div style={{ fontSize: 12, color: '#94A3B8' }}>{(diseaseImage.size / 1024).toFixed(0)} KB</div>
+                        </div>
+                      )}
+                      <button onClick={handleDiagnose} disabled={!diseaseImage || diagnosing}
+                        style={{ padding: '10px 24px', background: diagnosing ? '#94A3B8' : '#DC2626', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: diseaseImage ? 'pointer' : 'not-allowed', marginBottom: 12 }}>
+                        {diagnosing ? '🔬 Diagnosing...' : '🔍 Diagnose Disease'}
+                      </button>
+                      {diagError && <div style={{ padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>{diagError}</div>}
+                    </div>
+                  </div>
+
+                  {diagnosis && (
+                    <div style={{ marginTop: 20, background: diagnosis.disease === 'Healthy' ? '#F0FDF4' : diagnosis.severity === 'severe' ? '#FEF2F2' : '#FFFBEB', borderRadius: 14, padding: 20, border: `1px solid ${diagnosis.disease === 'Healthy' ? '#BBF7D0' : diagnosis.severity === 'severe' ? '#FECACA' : '#FDE68A'}` }}>
+                      {/* Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                        <div>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: '#0F172A', marginBottom: 4 }}>
+                            {diagnosis.disease === 'Healthy' ? '✅ ' : diagnosis.severity === 'severe' ? '🚨 ' : '⚠️ '}
+                            {diagnosis.disease}
+                          </div>
+                          <div style={{ fontSize: 13, color: '#64748B' }}>Crop: <strong>{diagnosis.cropType}</strong></div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <span style={{ fontSize: 12, fontWeight: 800, padding: '4px 12px', borderRadius: 20, background: diagnosis.severity === 'none' ? '#DCFCE7' : diagnosis.severity === 'mild' ? '#FEF3C7' : diagnosis.severity === 'moderate' ? '#FFEDD5' : '#FEE2E2', color: diagnosis.severity === 'none' ? '#166534' : diagnosis.severity === 'mild' ? '#92400E' : diagnosis.severity === 'moderate' ? '#9A3412' : '#991B1B' }}>
+                            {diagnosis.severity?.toUpperCase()}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: '#F1F5F9', color: '#475569' }}>
+                            {diagnosis.confidence}% confidence
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, marginBottom: 16, fontWeight: 500 }}>{diagnosis.summary}</div>
+
+                      {diagnosis.symptoms?.length > 0 && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 6 }}>Symptoms Detected</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {diagnosis.symptoms.map((s, i) => <span key={i} style={{ fontSize: 12, padding: '4px 10px', background: '#FEF9C3', color: '#713F12', borderRadius: 6, fontWeight: 600 }}>{s}</span>)}
+                          </div>
+                        </div>
+                      )}
+
+                      {diagnosis.treatment?.length > 0 && diagnosis.disease !== 'Healthy' && (
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 8 }}>Treatment Steps</div>
+                          {diagnosis.treatment.map((t, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 6, alignItems: 'flex-start' }}>
+                              <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#1B4332', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{i+1}</span>
+                              <span style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>{t}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {diagnosis.prevention?.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 6 }}>Prevention Tips</div>
+                          {diagnosis.prevention.map((p, i) => <div key={i} style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>• {p}</div>)}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
