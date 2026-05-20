@@ -10,5 +10,8 @@ router.get('/job-match', ai.jobMatch);
 router.post('/advisor', ai.cropAdvisor);
 router.get('/earnings-summary', ai.earningsSummary);
 router.get('/market-insights', ai.marketInsights);
+router.post('/diagnose-disease', ai.diagnoseCropDisease);
+router.post('/generate-listing', ai.generateListing);
+router.post('/negotiation-advice', ai.negotiationAdvice);
 
 module.exports = router;

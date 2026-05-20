@@ -41,6 +41,12 @@ export default function ProfilesPage() {
   const [matchError, setMatchError]   = useState('');
   const [matchNote, setMatchNote]     = useState('');
   const [verification, setVerification] = useState(null);
+  // Disease scanner
+  const [diseaseImage, setDiseaseImage]   = useState(null);
+  const [diseasePreview, setDiseasePreview] = useState('');
+  const [diagnosing, setDiagnosing]       = useState(false);
+  const [diagnosis, setDiagnosis]         = useState(null);
+  const [diagError, setDiagError]         = useState('');
 
   useEffect(() => {
     api.get('/user/profile').then(res => {
@@ -61,6 +67,40 @@ export default function ProfilesPage() {
       setTimeout(() => setSaved(false), 3000);
     } catch (e) { alert('Failed to save profile'); }
     finally { setSaving(false); }
+  };
+
+  const handleDiseaseImage = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setDiseaseImage(file);
+    setDiagnosis(null);
+    setDiagError('');
+    const reader = new FileReader();
+    reader.onload = ev => setDiseasePreview(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleDiagnose = async () => {
+    if (!diseaseImage) return;
+    setDiagnosing(true); setDiagnosis(null); setDiagError('');
+    try {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target.result;
+        const base64 = dataUrl.split(',')[1];
+        const mediaType = diseaseImage.type || 'image/jpeg';
+        try {
+          const res = await api.post('/ai/diagnose-disease', { imageBase64: base64, mediaType });
+          setDiagnosis(res.data);
+        } catch (e) {
+          setDiagError(e.response?.data?.error || 'Diagnosis failed. Please try again.');
+        } finally { setDiagnosing(false); }
+      };
+      reader.readAsDataURL(diseaseImage);
+    } catch (e) {
+      setDiagError('Failed to process image.');
+      setDiagnosing(false);
+    }
   };
 
   const handleCropPredict = async () => {
