@@ -313,3 +313,151 @@ exports.marketInsights = async (req, res) => {
     res.status(500).json({ error: 'Failed to load market insights' });
   }
 };
+
+// ────────────────────────────────────────────────────────────
+// CROP DISEASE SCANNER
+// ────────────────────────────────────────────────────────────
+exports.diagnoseCropDisease = async (req, res) => {
+  const { imageBase64, mediaType } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'No image data provided' });
+
+  try {
+    const response = await callWithRetry(async () => client.messages.create({
+      model: MODEL,
+      max_tokens: 900,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 }
+          },
+          {
+            type: 'text',
+            text: `You are an expert agricultural disease diagnostician for Punjab and Haryana, India. Carefully analyze this crop image.
+
+Return ONLY valid JSON, no markdown:
+{
+  "cropType": "wheat/rice/cotton/mustard/sugarcane/maize/other/unknown",
+  "disease": "Exact disease name, or 'Healthy' if no disease detected",
+  "severity": "none/mild/moderate/severe",
+  "confidence": 85,
+  "symptoms": ["visible symptom 1", "visible symptom 2"],
+  "treatment": ["Immediate step 1", "Step 2", "Step 3"],
+  "prevention": ["Prevention tip 1", "Prevention tip 2"],
+  "urgency": "low/medium/high",
+  "summary": "2-sentence plain-language summary for a Punjab farmer"
+}
+
+If image is not a crop or is unclear: set disease="Unable to analyze", confidence=0, urgency="low".`
+          }
+        ]
+      }]
+    }));
+
+    const text = response.content[0].text.trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON in Claude response');
+    res.json({ ...JSON.parse(match[0]), source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Disease diagnosis error:', err.status, err.message);
+    res.status(500).json({ error: 'Diagnosis failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// AI LISTING GENERATOR
+// ────────────────────────────────────────────────────────────
+exports.generateListing = async (req, res) => {
+  const { description, role, district } = req.body;
+  if (!description) return res.status(400).json({ error: 'Description is required' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 600,
+        messages: [{
+          role: 'user',
+          content: `You are a marketplace listing expert for PindBazaar, an agricultural marketplace in Punjab/Haryana India.
+
+User (${role || 'farmer'} from ${district || 'Punjab'}) described: "${description}"
+
+Generate a professional marketplace listing. Return ONLY valid JSON:
+{
+  "type": "demand or supply or job",
+  "title": "Clear, specific listing title (max 60 chars)",
+  "description": "Professional 2-3 sentence description with key details",
+  "cropType": "Wheat/Paddy/Cotton/Mustard/Sugarcane/Maize/Barley/Soybean or empty string if not applicable",
+  "quantity": 50,
+  "price": 2500,
+  "location": "Village/Area, District name",
+  "priceReasoning": "One sentence explaining why this price is fair for current market"
+}
+
+Rules:
+- type=supply if selling/offering, type=demand if buying/requesting, type=job if offering a service
+- price should be realistic for Punjab/Haryana market rates in ₹
+- quantity in metric tons for crops, acres for land work, count for vehicles
+- location based on district: ${district || 'Punjab'}`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Listing generator error:', err.status, err.message);
+    res.status(500).json({ error: 'Listing generation failed. Please try again.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// NEGOTIATION ADVISOR
+// ────────────────────────────────────────────────────────────
+exports.negotiationAdvice = async (req, res) => {
+  const { listingTitle, listingPrice, cropType, location, listingType, userRole } = req.body;
+  if (!listingTitle) return res.status(400).json({ error: 'Listing details required' });
+
+  try {
+    const json = await callWithRetry(async () => {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: `You are a market negotiation advisor for PindBazaar, Punjab/Haryana agricultural marketplace.
+
+Listing: "${listingTitle}"
+Listed Price: ₹${listingPrice || 'Not specified'}
+Crop/Material: ${cropType || 'General'}
+Location: ${location || 'Punjab'}
+Listing Type: ${listingType || 'demand'}
+User Role: ${userRole || 'farmer'}
+
+Analyze this deal and advise whether to accept, counter-offer, or skip.
+Return ONLY valid JSON:
+{
+  "verdict": "accept or counter or skip",
+  "fairPrice": 4500,
+  "marketMin": 3800,
+  "marketMax": 5200,
+  "counterOffer": 4200,
+  "confidence": 80,
+  "reasoning": "2-3 sentence explanation of why this price is good/bad and what to do",
+  "tip": "One practical negotiation tip for this specific deal"
+}
+
+verdict rules:
+- "accept" if price is at or above fair market value
+- "counter" if price is within 20% below fair value (negotiate up)
+- "skip" if price is unrealistically low or deal looks unfavorable`
+        }]
+      });
+      return extractJSON(msg.content[0].text);
+    });
+    res.json({ ...json, source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Negotiation advice error:', err.status, err.message);
+    res.status(500).json({ error: 'Could not get negotiation advice.' });
+  }
+};
