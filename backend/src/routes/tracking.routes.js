@@ -1,0 +1,10 @@
+const express = require('express');
+const router = express.Router();
+const t = require('../controllers/tracking.controller');
+const { authenticate } = require('../middleware/auth.middleware');
+router.use(authenticate);
+router.post('/:orderId/start', t.startTracking);
+router.put('/:orderId/ping', t.pingLocation);
+router.get('/:orderId', t.getLocation);
+router.delete('/:orderId/stop', t.stopTracking);
+module.exports = router;

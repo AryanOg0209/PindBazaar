@@ -11,6 +11,7 @@ export default function DesktopTopNav({ user }) {
     { label: 'Home',     icon: '🏠', path: '/dashboard' },
     { label: 'Market',   icon: '🛒', path: '/market' },
     { label: 'Orders',   icon: '📦', path: '/orders' },
+    { label: 'Map',      icon: '🗺️', path: '/map' },
     { label: 'Reports',  icon: '📄', path: '/reports' },
     { label: 'Profiles', icon: '👤', path: '/profile' },
     { label: 'Settings', icon: '⚙️', path: '/settings' },

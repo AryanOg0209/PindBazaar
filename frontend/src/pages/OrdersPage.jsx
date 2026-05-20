@@ -3,6 +3,7 @@ import { fetchOrders, updateOrderStatus } from '../services/orderApi';
 import { useAuth } from '../context/AuthContext';
 import DesktopTopNav from '../components/dashboard/DesktopTopNav';
 import Loader from '../components/dashboard/Loader';
+import TrackingMap from '../components/TrackingMap';
 
 const STATUS_CONFIG = {
   pending:     { label: 'Pending',     color: '#92400E', bg: '#FEF3C7', icon: '⏳' },
@@ -45,6 +46,7 @@ export default function OrdersPage() {
   const [error, setError]           = useState('');
   const [statusFilter, setStatusFilter] = useState('active'); // active | completed | all
   const [updating, setUpdating]     = useState(null); // orderId being updated
+  const [trackingOrder, setTrackingOrder] = useState(null);
 
   const loadOrders = async () => {
     setLoading(true);
@@ -163,7 +165,7 @@ export default function OrdersPage() {
                           <div style={{ fontSize: 24, fontWeight: 800, color: '#059669', marginBottom: 12 }}>
                             ₹{Number(order.agreedPrice).toLocaleString()}
                           </div>
-                          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                             {order.status === 'accepted' && isWorker && (
                               <ActionBtn
                                 label="▶ Start Job"
@@ -189,6 +191,12 @@ export default function OrdersPage() {
                                 outline
                               />
                             )}
+                            {order.status === 'in_progress' && (
+                              <button onClick={() => setTrackingOrder(order)}
+                                style={{ padding: '8px 16px', background: '#7C3AED', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {user?.role === 'mover' ? '📡 Share Location' : '🗺️ Track Live'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -212,6 +220,14 @@ export default function OrdersPage() {
           )}
         </div>
       </div>
+      {trackingOrder && (
+        <TrackingMap
+          orderId={trackingOrder.id}
+          userRole={user?.role}
+          orderTitle={trackingOrder.listing?.title || 'Delivery'}
+          onClose={() => setTrackingOrder(null)}
+        />
+      )}
     </div>
   );
 }

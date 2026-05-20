@@ -83,14 +83,15 @@ export function WeatherWidget({ role, refreshKey = 0 }) {
             </div>
           </div>
 
-          {/* 3-day forecast */}
+          {/* 5-day forecast */}
           {weather.forecast?.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weather.forecast.length}, 1fr)`, gap: 6, marginBottom: 8 }}>
-              {weather.forecast.map((d, i) => (
-                <div key={i} style={{ background: '#F8FAFC', borderRadius: 8, padding: '6px 4px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#64748B' }}>{d.date}</div>
-                  <img src={d.icon} alt={d.desc} style={{ width: 24, height: 24 }} />
-                  <div style={{ fontSize: 13, fontWeight: 800, color: '#0F172A' }}>{d.temp}°</div>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(weather.forecast.length, 5)}, 1fr)`, gap: 5, marginBottom: 8 }}>
+              {weather.forecast.slice(0,5).map((d, i) => (
+                <div key={i} style={{ background: d.rain > 2 ? '#EFF6FF' : '#F8FAFC', borderRadius: 8, padding: '6px 3px', textAlign: 'center', border: d.rain > 2 ? '1px solid #BFDBFE' : '1px solid transparent' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: '#64748B' }}>{d.date}</div>
+                  <div style={{ fontSize: 18 }}>{d.icon || '🌤'}</div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#0F172A' }}>{d.tempMax ?? d.temp}°</div>
+                  {d.rain > 0 && <div style={{ fontSize: 9, color: '#1D4ED8', fontWeight: 700 }}>💧{d.rain}mm</div>}
                 </div>
               ))}
             </div>
@@ -101,6 +102,11 @@ export function WeatherWidget({ role, refreshKey = 0 }) {
             <div style={{ background: 'linear-gradient(135deg,#1B4332,#2D6A4F)', borderRadius: 8, padding: '7px 12px', display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 14 }}>🤖</span>
               <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.9)', fontWeight: 600 }}>{weather.advisory}</span>
+            </div>
+          )}
+          {weather.rainDaysAhead > 0 && (
+            <div style={{ marginTop: 6, fontSize: 11, color: '#1E40AF', fontWeight: 700, background: '#EFF6FF', padding: '4px 10px', borderRadius: 6 }}>
+              🌧 Rain expected {weather.rainDaysAhead} day{weather.rainDaysAhead > 1 ? 's' : ''} ahead — plan accordingly
             </div>
           )}
         </>

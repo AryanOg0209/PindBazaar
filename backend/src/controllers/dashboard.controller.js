@@ -228,68 +228,96 @@ exports.getStats = async (req, res) => {
 };
 
 // ────────────────────────────────────────────────────────
-// GET /api/dashboard/weather?lat=X&lon=Y  – OpenWeather
+// GET /api/dashboard/weather?lat=X&lon=Y — uses Open-Meteo (free, no API key)
 // ────────────────────────────────────────────────────────
 exports.getWeather = async (req, res) => {
-  const lat = Number(req.query.lat || 30.9); // Default: Ludhiana
-  const lon = Number(req.query.lon || 75.85);
-  const apiKey = process.env.OPENWEATHER_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'Weather API key not configured' });
-
+  const lat = parseFloat(req.query.lat) || 30.9;
+  const lon = parseFloat(req.query.lon) || 75.85;
   try {
-    const [current, forecast] = await Promise.all([
-      axios.get(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`),
-      axios.get(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&cnt=24`)
-    ]);
-
-    const w = current.data;
-    const iconCode = w.weather[0].icon;
-    const iconUrl  = `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
-
-    // 3-day from forecast (every 8th entry = ~24h)
-    const days3 = forecast.data.list
-      .filter((_, i) => i % 8 === 7 || i === forecast.data.list.length - 1)
-      .slice(0, 3)
-      .map(d => ({
-        date: new Date(d.dt * 1000).toLocaleDateString('en-IN', { weekday: 'short' }),
-        temp: Math.round(d.main.temp),
-        icon: `https://openweathermap.org/img/wn/${d.weather[0].icon}.png`,
-        desc: d.weather[0].main,
-        rain: d.rain?.['3h'] || 0
-      }));
-
-    // Farming advisory from Claude
-    let advisory = '';
+    // Reverse geocode district name via Nominatim
+    let city = 'Punjab';
     try {
-      if (!client) throw new Error('AI key not configured');
-      const msg = await withRetry(() => client.messages.create({
-        model: MODEL, max_tokens: 100,
-        messages: [{ role: 'user', content: `Punjab India weather: ${Math.round(w.main.temp)}°C, ${w.weather[0].description}, humidity ${w.main.humidity}%. One short farming tip for today. Plain text, max 15 words.` }]
-      }));
-      advisory = msg.content[0].text.trim();
-    } catch (_) {
-      const temp = Math.round(w.main.temp);
-      advisory = temp > 35 ? 'Irrigate early morning. Avoid field work in peak heat.' :
-                 w.main.humidity > 80 ? 'High humidity — watch for fungal disease in crops.' :
-                 'Good conditions for field operations today.';
+      const geoRes = await axios.get(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`, { headers: { 'User-Agent': 'PindBazaar/1.0' }, timeout: 5000 });
+      city = geoRes.data?.address?.county || geoRes.data?.address?.city || geoRes.data?.address?.state_district || 'Punjab';
+    } catch (_) {}
+
+    // Open-Meteo free weather API
+    const weatherRes = await axios.get('https://api.open-meteo.com/v1/forecast', {
+      params: {
+        latitude: lat, longitude: lon,
+        current: 'temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,apparent_temperature',
+        daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max',
+        timezone: 'Asia/Kolkata',
+        forecast_days: 5
+      },
+      timeout: 8000
+    });
+
+    const cur = weatherRes.data.current;
+    const daily = weatherRes.data.daily;
+
+    // WMO weather code → description
+    const WMO = { 0:'Clear sky', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Icy fog', 51:'Light drizzle', 53:'Moderate drizzle', 55:'Dense drizzle', 61:'Slight rain', 63:'Moderate rain', 65:'Heavy rain', 71:'Slight snow', 73:'Moderate snow', 75:'Heavy snow', 80:'Rain showers', 81:'Moderate showers', 82:'Violent showers', 95:'Thunderstorm', 99:'Thunderstorm w/ hail' };
+    const WMO_MAIN = { 0:'Clear', 1:'Clear', 2:'Clouds', 3:'Clouds', 45:'Mist', 48:'Mist', 51:'Drizzle', 53:'Drizzle', 55:'Drizzle', 61:'Rain', 63:'Rain', 65:'Rain', 71:'Snow', 73:'Snow', 75:'Snow', 80:'Rain', 81:'Rain', 82:'Thunderstorm', 95:'Thunderstorm', 99:'Thunderstorm' };
+    const WMO_ICON = { 0:'☀️', 1:'🌤', 2:'⛅', 3:'☁️', 45:'🌫', 48:'🌫', 51:'🌦', 53:'🌦', 55:'🌧', 61:'🌧', 63:'🌧', 65:'🌧', 71:'❄️', 73:'❄️', 75:'❄️', 80:'🌦', 81:'🌧', 82:'⛈', 95:'⛈', 99:'⛈' };
+
+    const code = cur.weather_code;
+    const description = WMO[code] || 'Variable';
+    const main = WMO_MAIN[code] || 'Clear';
+
+    // 5-day forecast
+    const forecast = (daily.time || []).slice(0, 5).map((date, i) => ({
+      date: new Date(date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' }),
+      tempMax: Math.round(daily.temperature_2m_max[i]),
+      tempMin: Math.round(daily.temperature_2m_min[i]),
+      temp: Math.round(daily.temperature_2m_max[i]),
+      rain: Math.round(daily.precipitation_sum[i] || 0),
+      icon: WMO_ICON[daily.weather_code[i]] || '🌤',
+      desc: WMO[daily.weather_code[i]] || 'Variable',
+      code: daily.weather_code[i],
+    }));
+
+    // AI farming advisory
+    let advisory = '';
+    const rainDays = forecast.filter(d => d.rain > 1).length;
+    const maxTemp = Math.max(...forecast.map(d => d.tempMax));
+    try {
+      if (client) {
+        const forecastSummary = forecast.slice(0, 3).map(d => `${d.date}: ${d.desc}, max ${d.tempMax}°C, rain ${d.rain}mm`).join('; ');
+        const msg = await client.messages.create({
+          model: 'claude-sonnet-4-6', max_tokens: 80,
+          messages: [{ role: 'user', content: `Punjab/Haryana farmer. Weather: ${Math.round(cur.temperature_2m)}°C, ${description}, humidity ${cur.relative_humidity_2m}%. 3-day: ${forecastSummary}. Give ONE specific farming action tip in max 18 words. Plain text only.` }]
+        });
+        advisory = msg.content[0].text.trim().replace(/^["']|["']$/g, '');
+      }
+    } catch (_) {}
+    if (!advisory) {
+      advisory = rainDays >= 2 ? 'Rain expected — delay harvesting and field operations for 2-3 days.' :
+        maxTemp > 38 ? 'Extreme heat — irrigate early morning, avoid spraying pesticides.' :
+        cur.relative_humidity_2m > 80 ? 'High humidity — watch for fungal disease, ensure field drainage.' :
+        'Good conditions — ideal for field operations and transport.';
     }
 
     res.json({
-      temp: Math.round(w.main.temp),
-      feelsLike: Math.round(w.main.feels_like),
-      humidity: w.main.humidity,
-      windSpeed: Math.round(w.wind.speed * 3.6), // m/s → km/h
-      description: w.weather[0].description,
-      main: w.weather[0].main,
-      iconUrl,
-      city: w.name,
-      forecast: days3,
+      temp: Math.round(cur.temperature_2m),
+      feelsLike: Math.round(cur.apparent_temperature),
+      humidity: cur.relative_humidity_2m,
+      windSpeed: Math.round(cur.wind_speed_10m),
+      description, main, city,
+      forecast,
       advisory,
+      rainDaysAhead: rainDays,
+      source: 'open-meteo',
       lastUpdated: new Date().toISOString(),
     });
   } catch (err) {
-    console.error('Weather error:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Weather data unavailable' });
+    console.error('Weather error:', err.message);
+    res.json({
+      temp: 32, feelsLike: 35, humidity: 58, windSpeed: 12,
+      description: 'Partly cloudy', main: 'Clouds', city: 'Punjab',
+      forecast: [], advisory: 'Check local weather before farm operations.',
+      source: 'fallback', lastUpdated: new Date().toISOString(),
+    });
   }
 };
 
