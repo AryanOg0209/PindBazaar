@@ -164,23 +164,23 @@ exports.acceptBid = async (req, res) => {
     const bid = await prisma.workflowBid.findUnique({ where: { id: req.params.bidId } });
     if (!bid || bid.workflowId !== req.params.id) return res.status(404).json({ error: 'Bid not found' });
 
-    // Accept this bid, reject all others
-    await prisma.workflowBid.updateMany({
-      where: { workflowId: req.params.id, id: { not: req.params.bidId } },
-      data: { status: 'rejected' },
-    });
-    await prisma.workflowBid.update({ where: { id: req.params.bidId }, data: { status: 'accepted' } });
-
-    // Assign baler to workflow
-    const updated = await prisma.biomassWorkflow.update({
-      where: { id: req.params.id },
-      data: {
-        balerId: bid.balerId,
-        stage: 'baler_assigned',
-        balerAcceptedAt: new Date(),
-        balerPriceRs: bid.pricePerTon * bid.quantityTons,
-      },
-      include: INCLUDE_ALL,
+    // ── Atomic transaction: reject others + accept chosen + advance stage ──
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.workflowBid.updateMany({
+        where: { workflowId: req.params.id, id: { not: req.params.bidId } },
+        data: { status: 'rejected' },
+      });
+      await tx.workflowBid.update({ where: { id: req.params.bidId }, data: { status: 'accepted' } });
+      return tx.biomassWorkflow.update({
+        where: { id: req.params.id },
+        data: {
+          balerId: bid.balerId,
+          stage: 'baler_assigned',
+          balerAcceptedAt: new Date(),
+          balerPriceRs: bid.pricePerTon * bid.quantityTons,
+        },
+        include: INCLUDE_ALL,
+      });
     });
     await addEvent(req.params.id, 'baler_assigned', 'farmer', req.user.id,
       `Baler bid accepted — ₹${bid.pricePerTon}/ton × ${bid.quantityTons} tons = ₹${bid.pricePerTon * bid.quantityTons}`);
@@ -264,23 +264,25 @@ exports.acceptOffer = async (req, res) => {
     const offer = await prisma.industryOffer.findUnique({ where: { id: req.params.offerId } });
     if (!offer || offer.workflowId !== req.params.id) return res.status(404).json({ error: 'Offer not found' });
 
-    // Accept this offer, reject others
-    await prisma.industryOffer.updateMany({
-      where: { workflowId: req.params.id, id: { not: req.params.offerId } },
-      data: { status: 'rejected' },
-    });
-    await prisma.industryOffer.update({ where: { id: req.params.offerId }, data: { status: 'accepted' } });
-
     const total = offer.pricePerTon * offer.quantityTons;
-    const updated = await prisma.biomassWorkflow.update({
-      where: { id: req.params.id },
-      data: {
-        industryId: offer.industryId,
-        industryLinkedAt: new Date(),
-        finalPriceRs: total,
-        stage: 'industry_linked',
-      },
-      include: INCLUDE_ALL,
+
+    // ── Atomic transaction: reject others + accept chosen + advance stage ──
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.industryOffer.updateMany({
+        where: { workflowId: req.params.id, id: { not: req.params.offerId } },
+        data: { status: 'rejected' },
+      });
+      await tx.industryOffer.update({ where: { id: req.params.offerId }, data: { status: 'accepted' } });
+      return tx.biomassWorkflow.update({
+        where: { id: req.params.id },
+        data: {
+          industryId: offer.industryId,
+          industryLinkedAt: new Date(),
+          finalPriceRs: total,
+          stage: 'industry_linked',
+        },
+        include: INCLUDE_ALL,
+      });
     });
     await addEvent(req.params.id, 'industry_linked', 'farmer', req.user.id,
       `Industry offer accepted — ₹${offer.pricePerTon}/ton × ${offer.quantityTons} tons = ₹${total}. Now accepting transport bids.`);
@@ -340,16 +342,18 @@ exports.acceptTransportBid = async (req, res) => {
     const bid = await prisma.transportBid.findUnique({ where: { id: req.params.bidId } });
     if (!bid || bid.workflowId !== req.params.id) return res.status(404).json({ error: 'Bid not found' });
 
-    await prisma.transportBid.updateMany({
-      where: { workflowId: req.params.id, id: { not: req.params.bidId } },
-      data: { status: 'rejected' },
-    });
-    await prisma.transportBid.update({ where: { id: req.params.bidId }, data: { status: 'accepted' } });
-
-    const updated = await prisma.biomassWorkflow.update({
-      where: { id: req.params.id },
-      data: { moverId: bid.moverId, stage: 'transport_assigned', moverAcceptedAt: new Date(), moverPriceRs: bid.priceTotal },
-      include: INCLUDE_ALL,
+    // ── Atomic transaction ──
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.transportBid.updateMany({
+        where: { workflowId: req.params.id, id: { not: req.params.bidId } },
+        data: { status: 'rejected' },
+      });
+      await tx.transportBid.update({ where: { id: req.params.bidId }, data: { status: 'accepted' } });
+      return tx.biomassWorkflow.update({
+        where: { id: req.params.id },
+        data: { moverId: bid.moverId, stage: 'transport_assigned', moverAcceptedAt: new Date(), moverPriceRs: bid.priceTotal },
+        include: INCLUDE_ALL,
+      });
     });
     await addEvent(req.params.id, 'transport_assigned', 'farmer', req.user.id,
       `Transport accepted — ₹${bid.priceTotal}, ${bid.estimatedDays} day(s)`);

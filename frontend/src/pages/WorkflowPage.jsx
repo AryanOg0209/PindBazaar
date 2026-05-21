@@ -283,7 +283,7 @@ function FarmerView({ user }) {
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1B4332', marginBottom: 8 }}>
                       🔨 {wf.balerBids.length} Baler Bid{wf.balerBids.length > 1 ? 's' : ''} — Pick the best:
                     </div>
-                    {wf.balerBids.filter(b => b.status === 'pending').map(bid => (
+                    {wf.balerBids.filter(b => b.status !== 'rejected').map(bid => (
                       <div key={bid.id} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14 }}>{bid.baler?.name || 'Baler'}</div>
@@ -324,7 +324,7 @@ function FarmerView({ user }) {
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#6D28D9', marginBottom: 8 }}>
                       🏭 {wf.industryOffers.length} Industry Offer{wf.industryOffers.length > 1 ? 's' : ''} — Choose a buyer:
                     </div>
-                    {wf.industryOffers.filter(o => o.status === 'pending').map(offer => (
+                    {wf.industryOffers.filter(o => o.status !== 'rejected').map(offer => (
                       <div key={offer.id} style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14 }}>{offer.industry?.name || 'Industry Buyer'}</div>
@@ -358,7 +358,7 @@ function FarmerView({ user }) {
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#0E7490', marginBottom: 8 }}>
                       🚚 {wf.transportBids.length} Transport Bid{wf.transportBids.length > 1 ? 's' : ''}:
                     </div>
-                    {wf.transportBids.filter(b => b.status === 'pending').map(bid => (
+                    {wf.transportBids.filter(b => b.status !== 'rejected').map(bid => (
                       <div key={bid.id} style={{ background: '#ECFEFF', border: '1px solid #A5F3FC', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14 }}>{bid.mover?.name || 'Mover'}</div>
