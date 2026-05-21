@@ -332,12 +332,13 @@ exports.submitTransportBid = async (req, res) => {
   }
 };
 
-// POST /api/workflow/:id/accept-transport-bid/:bidId  — Farmer accepts transport bid
+// POST /api/workflow/:id/accept-transport-bid/:bidId  — Baler accepts transport bid
 exports.acceptTransportBid = async (req, res) => {
-  if (req.user.role !== 'farmer') return res.status(403).json({ error: 'Only farmers can accept transport bids' });
+  if (req.user.role !== 'baler') return res.status(403).json({ error: 'Only the baler can accept transport bids' });
   try {
     const wf = await prisma.biomassWorkflow.findUnique({ where: { id: req.params.id } });
-    if (!wf || wf.farmerId !== req.user.id) return res.status(403).json({ error: 'Not your workflow' });
+    if (!wf || wf.balerId !== req.user.id) return res.status(403).json({ error: 'You are not the assigned baler for this workflow' });
+    if (wf.stage !== 'industry_linked') return res.status(400).json({ error: 'Cannot accept transport bids at this stage' });
 
     const bid = await prisma.transportBid.findUnique({ where: { id: req.params.bidId } });
     if (!bid || bid.workflowId !== req.params.id) return res.status(404).json({ error: 'Bid not found' });
@@ -355,10 +356,11 @@ exports.acceptTransportBid = async (req, res) => {
         include: INCLUDE_ALL,
       });
     });
-    await addEvent(req.params.id, 'transport_assigned', 'farmer', req.user.id,
-      `Transport accepted — ₹${bid.priceTotal}, ${bid.estimatedDays} day(s)`);
+    await addEvent(req.params.id, 'transport_assigned', 'baler', req.user.id,
+      `Transport booked by baler — ₹${bid.priceTotal} total, ${bid.estimatedDays} day(s) to deliver`);
     res.json(updated);
   } catch (err) {
+    console.error('acceptTransportBid error:', err);
     res.status(500).json({ error: 'Failed to accept transport bid' });
   }
 };

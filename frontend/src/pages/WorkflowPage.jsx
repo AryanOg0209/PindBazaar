@@ -190,19 +190,6 @@ function FarmerView({ user }) {
     }
   };
 
-  const acceptTransportBid = async (wfId, bidId) => {
-    setActionLoading(`tbid-${bidId}`);
-    try {
-      await api.post(`/workflow/${wfId}/accept-transport-bid/${bidId}`);
-      setMsg('✅ Transport booked! Mover will pick up bales.');
-      await load();
-    } catch (err) {
-      setMsg(err.response?.data?.error || 'Failed to accept transport bid');
-    } finally {
-      setActionLoading('');
-    }
-  };
-
   const cancelWorkflow = async (wfId) => {
     if (!window.confirm('Cancel this request?')) return;
     setActionLoading(`cancel-${wfId}`);
@@ -347,42 +334,25 @@ function FarmerView({ user }) {
               </div>
             )}
 
-            {/* ── Industry linked: show transport bids ── */}
+            {/* ── Industry linked: baler arranges transport (farmer just watches) ── */}
             {wf.stage === 'industry_linked' && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 13, color: '#0E7490', marginBottom: 8 }}>🏭 Buyer: <strong>{wf.industry?.name}</strong> · Total deal: ₹{wf.finalPriceRs?.toLocaleString()}</div>
-                {wf.transportBids?.length === 0 ? (
-                  <div style={{ color: '#6B7280', fontSize: 13 }}>⏳ Waiting for movers to bid on transport…</div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0E7490', marginBottom: 8 }}>
-                      🚚 {wf.transportBids.length} Transport Bid{wf.transportBids.length > 1 ? 's' : ''}:
-                    </div>
-                    {wf.transportBids.filter(b => b.status !== 'rejected').map(bid => (
-                      <div key={bid.id} style={{ background: '#ECFEFF', border: '1px solid #A5F3FC', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: 14 }}>{bid.mover?.name || 'Mover'}</div>
-                          <div style={{ fontSize: 12, color: '#6B7280' }}>₹{bid.priceTotal?.toLocaleString()} total · {bid.estimatedDays} days</div>
-                          {bid.message && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }}>"{bid.message}"</div>}
-                        </div>
-                        <Btn
-                          onClick={() => acceptTransportBid(wf.id, bid.id)}
-                          disabled={actionLoading === `tbid-${bid.id}`}
-                          color="#0E7490"
-                        >
-                          {actionLoading === `tbid-${bid.id}` ? 'Booking…' : '✓ Book Transport'}
-                        </Btn>
-                      </div>
-                    ))}
-                  </>
+              <div style={{ marginTop: 10, background: '#ECFEFF', borderRadius: 8, padding: 12, fontSize: 13 }}>
+                <div>🏭 Buyer confirmed: <strong>{wf.industry?.name}</strong> · Deal: ₹{wf.finalPriceRs?.toLocaleString()}</div>
+                <div style={{ marginTop: 4, color: '#0E7490' }}>
+                  📦 Your baler (<strong>{wf.baler?.name}</strong>) is now arranging transport to the buyer.
+                </div>
+                {wf.transportBids?.length > 0 && (
+                  <div style={{ marginTop: 4, color: '#6B7280' }}>
+                    🚚 {wf.transportBids.length} transport bid{wf.transportBids.length > 1 ? 's' : ''} received — baler is reviewing
+                  </div>
                 )}
               </div>
             )}
 
-            {/* ── Transport/transit/delivered ── */}
+            {/* ── Transport booked / in transit / delivered ── */}
             {wf.stage === 'transport_assigned' && (
               <div style={{ marginTop: 10, background: '#D1FAE5', borderRadius: 8, padding: 10, fontSize: 13 }}>
-                🚚 <strong>{wf.mover?.name}</strong> will pick up your bales. Transport cost: ₹{wf.moverPriceRs?.toLocaleString()}
+                🚚 <strong>{wf.mover?.name}</strong> is picking up your bales → delivering to <strong>{wf.industry?.name}</strong>
               </div>
             )}
             {wf.stage === 'in_transit' && (
@@ -592,6 +562,50 @@ function BalerView({ user }) {
               </WorkflowCard>
             );
           })}
+
+          {/* Industry linked: baler picks a mover */}
+          {myJobs.filter(wf => wf.stage === 'industry_linked' && wf.balerId === user.id).map(wf => (
+            <WorkflowCard key={wf.id} wf={wf} accent="#0E7490">
+              <div style={{ marginTop: 10, background: '#ECFEFF', borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 8 }}>
+                🏭 Buyer: <strong>{wf.industry?.name}</strong> · Deal value: ₹{wf.finalPriceRs?.toLocaleString()}
+                <div style={{ marginTop: 4, color: '#0E7490', fontWeight: 600 }}>
+                  📦 You need to arrange transport to the buyer. Pick the best mover below.
+                </div>
+              </div>
+              {!wf.transportBids?.length ? (
+                <div style={{ color: '#6B7280', fontSize: 13, padding: '6px 0' }}>⏳ Waiting for movers to bid on transport…</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0E7490', marginBottom: 8 }}>
+                    🚚 {wf.transportBids.length} Transport Bid{wf.transportBids.length > 1 ? 's' : ''} — Choose a mover:
+                  </div>
+                  {wf.transportBids.filter(b => b.status !== 'rejected').map(bid => (
+                    <div key={bid.id} style={{ background: '#F0FDFF', border: '1px solid #A5F3FC', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{bid.mover?.name || 'Mover'}</div>
+                        <div style={{ fontSize: 12, color: '#6B7280' }}>₹{bid.priceTotal?.toLocaleString()} total · {bid.estimatedDays} days</div>
+                        {bid.message && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }}>"{bid.message}"</div>}
+                      </div>
+                      <Btn
+                        onClick={async () => {
+                          try {
+                            await api.post(`/workflow/${wf.id}/accept-transport-bid/${bid.id}`);
+                            setMsg('✅ Transport booked! Mover will pick up bales.');
+                            await load();
+                          } catch (err) {
+                            setMsg(err.response?.data?.error || 'Failed to book transport');
+                          }
+                        }}
+                        color="#0E7490"
+                      >
+                        ✓ Book This Mover
+                      </Btn>
+                    </div>
+                  ))}
+                </>
+              )}
+            </WorkflowCard>
+          ))}
         </>
       )}
     </div>
