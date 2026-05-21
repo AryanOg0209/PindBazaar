@@ -1,6 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// ── In-memory GPS store: workflowId → { lat, lng, updatedAt, moverName } ──
+const gpsStore = {};
+
 const INCLUDE_ALL = {
   farmer:   { select: { name: true, phone: true } },
   baler:    { select: { name: true, phone: true } },
@@ -424,4 +427,29 @@ exports.cancelWorkflow = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to cancel workflow' });
   }
+};
+
+// ────────────────────────────────────────────────────────────
+// GPS LIVE TRACKING
+// ────────────────────────────────────────────────────────────
+
+// PUT /api/workflow/:id/location  — Mover shares GPS coordinates
+exports.updateLocation = (req, res) => {
+  if (req.user.role !== 'mover') return res.status(403).json({ error: 'Only movers can share location' });
+  const { lat, lng } = req.body;
+  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng required' });
+  gpsStore[req.params.id] = {
+    lat: parseFloat(lat),
+    lng: parseFloat(lng),
+    updatedAt: new Date().toISOString(),
+    moverName: req.user.name || 'Mover',
+  };
+  res.json({ success: true });
+};
+
+// GET /api/workflow/:id/location  — Anyone gets current mover location
+exports.getLocation = (req, res) => {
+  const loc = gpsStore[req.params.id];
+  if (!loc) return res.status(404).json({ error: 'No location data yet — mover has not shared location' });
+  res.json(loc);
 };

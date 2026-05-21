@@ -30,4 +30,8 @@ router.put('/:id/pickup-done',                  wf.pickupDone);         // mover
 router.put('/:id/delivered',                    wf.markDelivered);      // mover/industry confirms
 router.put('/:id/cancel',                       wf.cancelWorkflow);     // farmer/admin cancels
 
+// ── GPS live tracking ─────────────────────────────────────
+router.put('/:id/location',                     wf.updateLocation);     // mover pushes GPS
+router.get('/:id/location',                     wf.getLocation);        // anyone reads location
+
 module.exports = router;
