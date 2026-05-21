@@ -312,6 +312,7 @@ enum WorkflowStage {
   pending
   baler_assigned
   baling_done
+  industry_linked
   transport_assigned
   in_transit
   at_storage
