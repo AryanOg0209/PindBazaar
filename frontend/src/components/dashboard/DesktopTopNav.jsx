@@ -9,6 +9,7 @@ export default function DesktopTopNav({ user }) {
 
   const NAV_LINKS = [
     { label: 'Home',     icon: '🏠', path: '/dashboard' },
+    { label: 'Pipeline', icon: '♻️', path: '/workflow' },
     { label: 'Market',   icon: '🛒', path: '/market' },
     { label: 'Orders',   icon: '📦', path: '/orders' },
     { label: 'Map',      icon: '🗺️', path: '/map' },

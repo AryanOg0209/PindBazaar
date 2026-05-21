@@ -21,6 +21,7 @@ import MarketInsightsPage from './pages/MarketInsightsPage';
 import EquipmentPage   from './pages/EquipmentPage';
 import MapPage         from './pages/MapPage';
 import SchemesPage     from './pages/SchemesPage';
+import WorkflowPage   from './pages/WorkflowPage';
 import AdminLogin      from './pages/admin/AdminLogin';
 import AdminDashboard  from './pages/admin/AdminDashboard';
 import AdminDetail     from './pages/admin/AdminDetail';
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="/equipment"       element={<ProtectedRoute><EquipmentPage /></ProtectedRoute>} />
           <Route path="/map"             element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
           <Route path="/schemes"         element={<ProtectedRoute><SchemesPage /></ProtectedRoute>} />
+          <Route path="/workflow"        element={<ProtectedRoute><WorkflowPage /></ProtectedRoute>} />
 
           {/* Admin */}
           <Route path="/admin/login" element={<AdminLogin />} />

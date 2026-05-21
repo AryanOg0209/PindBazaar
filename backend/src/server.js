@@ -28,6 +28,7 @@ const dashboardRoutes     = require('./routes/dashboard.routes');
 const verificationRoutes  = require('./routes/verification.routes');
 const trackingRoutes = require('./routes/tracking.routes');
 const mapRoutes      = require('./routes/map.routes');
+const workflowRoutes = require('./routes/workflow.routes');
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -41,6 +42,7 @@ app.use('/api/dashboard',  dashboardRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/map',      mapRoutes);
+app.use('/api/workflow', workflowRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));

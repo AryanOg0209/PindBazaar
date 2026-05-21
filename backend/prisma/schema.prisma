@@ -74,6 +74,11 @@ model User {
   notifications   Notification[]
   aadhaarVerification AadhaarVerification?
 
+  farmerWorkflows   BiomassWorkflow[]  @relation("FarmerWorkflows")
+  balerWorkflows    BiomassWorkflow[]  @relation("BalerWorkflows")
+  moverWorkflows    BiomassWorkflow[]  @relation("MoverWorkflows")
+  industryWorkflows BiomassWorkflow[]  @relation("IndustryWorkflows")
+
   @@map("users")
 }
 
@@ -298,4 +303,79 @@ model AadhaarVerification {
   document Document @relation(fields: [documentId], references: [id])
 
   @@map("aadhaar_verifications")
+}
+
+enum WorkflowStage {
+  pending
+  baler_assigned
+  baling_done
+  transport_assigned
+  in_transit
+  at_storage
+  delivered
+  completed
+  cancelled
+}
+
+model BiomassWorkflow {
+  id           String         @id @default(uuid())
+
+  farmerId     String
+  farmer       User           @relation("FarmerWorkflows", fields: [farmerId], references: [id])
+
+  cropType     String
+  quantityTons Float
+  location     String
+  district     String
+  acresCount   Float?
+  notes        String?
+
+  stage        WorkflowStage  @default(pending)
+
+  balerId         String?
+  baler           User?        @relation("BalerWorkflows", fields: [balerId], references: [id])
+  balerAcceptedAt DateTime?
+  balingDoneAt    DateTime?
+  balesCount      Int?
+  balerPriceRs    Float?
+
+  moverId         String?
+  mover           User?        @relation("MoverWorkflows", fields: [moverId], references: [id])
+  moverAcceptedAt DateTime?
+  pickupDoneAt    DateTime?
+  moverPriceRs    Float?
+  deliveryAddress String?
+
+  industryId      String?
+  industry        User?        @relation("IndustryWorkflows", fields: [industryId], references: [id])
+  industryLinkedAt DateTime?
+  deliveredAt     DateTime?
+  deliveredQtyTons Float?
+  finalPriceRs    Float?
+
+  storageLocation String?
+  storageInAt     DateTime?
+  storageOutAt    DateTime?
+
+  events       WorkflowEvent[]
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("biomass_workflows")
+}
+
+model WorkflowEvent {
+  id         String          @id @default(uuid())
+  workflowId String
+  workflow   BiomassWorkflow @relation(fields: [workflowId], references: [id])
+
+  stage      String
+  actorRole  String
+  actorId    String?
+  note       String?
+
+  createdAt  DateTime        @default(now())
+
+  @@map("workflow_events")
 }
