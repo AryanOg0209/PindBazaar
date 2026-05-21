@@ -586,6 +586,145 @@ const PROCUREMENT_FALLBACK = {
   'Biogas Plant':     { needs:[{material:'Paddy Straw',estimatedQuantityTons:200,urgency:'high'},{material:'Cattle Dung (linked farms)',estimatedQuantityTons:100,urgency:'medium'}], districts:[{district:'Patiala',reason:'High paddy straw surplus, burning restrictions create seller urgency'},{district:'Ludhiana',reason:'Good baler network available'},{district:'Fatehgarh Sahib',reason:'Active FPOs for straw aggregation'}], priceOutlook:'bearish', orderTiming:'October — right after paddy harvest', budgetEstimateRs:350000, tips:['Partner with balers directly for regular supply at ₹150-180/quintal','Leverage government anti-stubble burning incentives','Ensure moisture <20% for optimal biogas yield'], risks:['Weather delays in paddy harvest reduce availability window','Competition from paper mills and biomass plants'] },
 };
 
+// ────────────────────────────────────────────────────────────
+// AADHAAR / DOCUMENT OCR PARSER  (Claude Vision)
+// ────────────────────────────────────────────────────────────
+exports.parseDocument = async (req, res) => {
+  const { imageBase64, mediaType, documentType } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'No image data provided' });
+
+  try {
+    const response = await callWithRetry(async () => client.messages.create({
+      model: MODEL,
+      max_tokens: 600,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { type: 'text', text: `This is an Indian ${documentType || 'Aadhaar card'} document image. Extract ONLY clearly visible printed text — never guess or hallucinate.
+Return ONLY valid JSON:
+{"name":"Full name as printed on card or empty","dob":"DD/MM/YYYY or empty","gender":"Male or Female or empty","address":"Complete address from card or empty","district":"District name only or empty","state":"State name or empty","pinCode":"6-digit PIN or empty","documentType":"aadhaar","confidence":85}
+Set confidence 0-100 based on image clarity. Use empty strings for unreadable fields.` }
+        ]
+      }]
+    }));
+    const text = response.content[0].text.trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON in response');
+    res.json({ ...JSON.parse(match[0]), source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Document parse error:', err.status, err.message);
+    res.status(500).json({ error: 'Could not read document. Please enter details manually.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// CROP PHOTO ANALYZER → AUTO-GENERATE LISTING  (Claude Vision)
+// ────────────────────────────────────────────────────────────
+exports.analyzeCropPhoto = async (req, res) => {
+  const { imageBase64, mediaType, userRole, district } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'No image data provided' });
+
+  try {
+    const response = await callWithRetry(async () => client.messages.create({
+      model: MODEL,
+      max_tokens: 700,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { type: 'text', text: `You are an expert agri-analyst for Punjab/Haryana India. Analyze this crop/produce photo. User role: ${userRole||'farmer'}, Location: ${district||'Punjab'}.
+Generate a complete marketplace listing. Return ONLY valid JSON:
+{"cropType":"Wheat/Paddy/Cotton/Mustard/Sugarcane/Maize/Cotton Bales/Paddy Straw/Other","qualityGrade":"A+/A/B/C","qualityNotes":"Brief quality observation in 1 sentence","listingType":"supply","title":"Specific listing title max 60 chars","description":"2-sentence professional description","suggestedPricePerQuintal":2100,"quantity":50,"unit":"quintal","confidence":85,"sellingTips":["Tip to maximize price","Second practical tip"]}
+If not an agricultural product: set confidence=0, title="Unknown item", describe issue in description.` }
+        ]
+      }]
+    }));
+    const text = response.content[0].text.trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON in response');
+    res.json({ ...JSON.parse(match[0]), source: 'ai' });
+  } catch (err) {
+    console.error('[AI] Crop photo analyze error:', err.status, err.message);
+    res.status(500).json({ error: 'Could not analyze photo. Please fill details manually.' });
+  }
+};
+
+// ────────────────────────────────────────────────────────────
+// GOVERNMENT SCHEME ADVISOR
+// ────────────────────────────────────────────────────────────
+const SCHEME_FALLBACKS = {
+  farmer: [
+    { name: 'PM-KISAN', benefit: '₹6,000/year direct to bank (3 installments of ₹2,000)', eligibility: 'All small & marginal farmers owning cultivable land', howToApply: '1. Visit pmkisan.gov.in or nearest CSC\n2. Bring Aadhaar + bank passbook + land records\n3. Register under farmer name matching land records', deadline: 'Ongoing — apply anytime', category: 'income_support', officialLink: 'https://pmkisan.gov.in', matchReason: 'All registered farmers with land are eligible' },
+    { name: 'PM Fasal Bima Yojana (PMFBY)', benefit: 'Full crop insurance — premium only 1.5-2% for rabi/kharif crops', eligibility: 'All farmers growing notified crops in Punjab/Haryana', howToApply: '1. Apply at nearest bank/CSC before sowing cutoff\n2. Bring land records + Aadhaar + bank account\n3. Claim online or at bank on crop damage', deadline: 'Before sowing (Oct rabi, Jun kharif)', category: 'crop_insurance', officialLink: 'https://pmfby.gov.in', matchReason: 'Farmers growing wheat, paddy, cotton all qualify' },
+    { name: 'Kisan Credit Card (KCC)', benefit: 'Crop loan up to ₹3 lakh at 4% interest (2% with repayment bonus)', eligibility: 'All farmers, tenant farmers, oral lessees', howToApply: '1. Visit SBI/PNB/Union Bank near you\n2. Fill KCC application + land records + Aadhaar + photos\n3. Disbursed within 15 working days', deadline: 'Ongoing', category: 'credit', officialLink: 'https://www.nabard.org', matchReason: 'Farmers with land or tenancy get crop loans at only 4% rate' },
+    { name: 'PM-KUSUM Solar Pump Subsidy', benefit: '60% subsidy on solar irrigation pumps up to 7.5 HP', eligibility: 'Farmers with irrigation land in Punjab/Haryana', howToApply: '1. Apply at state DISCOM or agriculture portal\n2. Submit land records + electricity bill + Aadhaar\n3. Pay only 30% of pump cost after subsidy approval', deadline: 'Limited slots — apply early on state portal', category: 'subsidy', officialLink: 'https://mnre.gov.in/pm-kusum', matchReason: 'Reduces irrigation electricity cost by 70% for Punjab farmers' },
+    { name: 'MSP Direct Procurement', benefit: 'Wheat ₹2,275/quintal, Paddy ₹2,183/quintal — guaranteed government price', eligibility: 'Registered farmers in Punjab/Haryana with land records', howToApply: '1. Register on Meri Fasal Mera Byora (Punjab) or Haryana portal\n2. Get token for procurement centre\n3. Bring crop to designated mandi on token date', deadline: 'Rabi: April-June | Kharif: Oct-Dec', category: 'price_support', officialLink: 'https://anaajkharid.in', matchReason: 'Punjab/Haryana farmers are top beneficiaries of MSP procurement' },
+  ],
+  mover: [
+    { name: 'PMEGP Business Loan + Subsidy', benefit: 'Loan up to ₹25 lakh with 15-35% subsidy for transport business', eligibility: 'Age 18+, transport/logistics business owners', howToApply: '1. Apply at kvic.gov.in\n2. Prepare business plan for agricultural transport\n3. Submit Aadhaar + vehicle docs + bank statement', deadline: 'Ongoing', category: 'credit', officialLink: 'https://www.kviconline.gov.in/pmegp', matchReason: 'Agricultural transport qualifies as agri-allied business' },
+    { name: 'MUDRA Loan (Tarun)', benefit: 'Business loan ₹5-10 lakh, no collateral needed', eligibility: 'Small transport businesses, vehicle owners expanding fleet', howToApply: '1. Apply at any bank or NBFC\n2. Submit: vehicle RC + Aadhaar + 6-month bank statement\n3. Disbursed in 7-10 working days', deadline: 'Ongoing', category: 'credit', officialLink: 'https://mudra.org.in', matchReason: 'Movers use MUDRA Tarun to buy new vehicle or expand fleet' },
+    { name: 'Udyam MSME Registration', benefit: 'Priority lending, government tender preference, technology subsidy access', eligibility: 'Any transport business with turnover < ₹250 crore', howToApply: '1. Free registration at udyamregistration.gov.in\n2. Use Aadhaar + GST number\n3. Certificate issued instantly', deadline: 'Ongoing — free and instant', category: 'incentive', officialLink: 'https://udyamregistration.gov.in', matchReason: 'Unlocks 20+ government schemes for transport businesses' },
+  ],
+  baler: [
+    { name: 'SMAM Farm Machinery Subsidy', benefit: '40-50% subsidy on balers and straw management equipment', eligibility: 'Registered farmers and custom hiring entrepreneurs', howToApply: '1. Apply at agrimachinery.dac.gov.in BEFORE purchase\n2. Submit Aadhaar + bank details + landholding proof\n3. State agriculture dept processes within 30 days', deadline: 'Apply before equipment purchase', category: 'subsidy', officialLink: 'https://agrimachinery.dac.gov.in', matchReason: 'Balers specifically covered under SMAM straw management scheme' },
+    { name: 'MUDRA Loan (Kishor)', benefit: 'Business loan ₹50,000–₹5 lakh for machinery purchase', eligibility: 'Baling service entrepreneurs, small machinery owners', howToApply: '1. Apply at bank with machine quotation + business plan\n2. Submit Aadhaar + 2 photos + 6-month bank statement\n3. Approval in 7-15 days', deadline: 'Ongoing', category: 'credit', officialLink: 'https://mudra.org.in', matchReason: 'Ideal for expanding baling capacity by buying additional machine' },
+    { name: 'Punjab Anti-Stubble Burning Incentive (Indirect)', benefit: '₹2,500/acre incentive drives farmer demand for baling services', eligibility: 'Farmers hiring balers for paddy straw — creates your customer base', howToApply: '1. Farmers register on Punjab Agriculture portal\n2. Baler provides geo-tagged service photo for verification\n3. Incentive goes to farmer, but high demand generated for you', deadline: 'September-November (kharif season)', category: 'subsidy', officialLink: 'https://agripb.gov.in', matchReason: 'Government scheme that directly increases demand for baling services' },
+  ],
+  industry: [
+    { name: 'PLI Scheme — Food Processing', benefit: 'Up to 10% production-linked incentive on incremental sales for 6 years', eligibility: 'Food processing units — minimum investment ₹10 crore', howToApply: '1. Apply at mofpi.gov.in\n2. Submit CA-certified financials + project DPR\n3. MOFPI evaluates in 60 days', deadline: 'Check MOFPI for active rounds', category: 'incentive', officialLink: 'https://mofpi.gov.in/pli-scheme', matchReason: 'Rice mills, flour mills, cotton processors claim production incentives' },
+    { name: 'PM Kisan SAMPADA Yojana', benefit: 'Grant up to ₹50 lakh for cold storage and processing infrastructure', eligibility: 'Food processing businesses, FPOs near farm clusters', howToApply: '1. Apply at mofpi.gov.in/sampada\n2. Submit project DPR + financials + land records\n3. State-level committee approves in 90 days', deadline: 'Quarterly windows — check portal', category: 'subsidy', officialLink: 'https://mofpi.gov.in/sampada', matchReason: 'Industries near Punjab/Haryana agri-clusters qualify for infra grants' },
+    { name: 'Udyam MSME Registration', benefit: 'Priority credit, technology upgrade subsidy, government tender preference', eligibility: 'Processing industries with turnover < ₹250 crore', howToApply: 'Free instant registration at udyamregistration.gov.in with Aadhaar + GST', deadline: 'Ongoing', category: 'incentive', officialLink: 'https://udyamregistration.gov.in', matchReason: 'Unlocks 20+ government schemes for industrial processing units' },
+  ],
+};
+
+exports.getSchemes = async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { farmerProfile: true, industryProfile: true, balerProfile: true, moverProfile: true }
+    });
+
+    const profileLines = [
+      `Role: ${user.role}`, `State: Punjab/Haryana`,
+      user.farmerProfile   ? `Land: ${user.farmerProfile.landAcres} acres, Crops: ${user.farmerProfile.cropTypes?.join(', ')}, District: ${user.farmerProfile.district}` : '',
+      user.industryProfile ? `Industry: ${user.industryProfile.industryType}, Company: ${user.industryProfile.companyName}, District: ${user.industryProfile.district}` : '',
+      user.balerProfile    ? `Equipment: ${user.balerProfile.machineCount} ${user.balerProfile.machineType} balers, District: ${user.balerProfile.district}` : '',
+      user.moverProfile    ? `Fleet: ${user.moverProfile.vehicleCount} ${user.moverProfile.vehicleType}, District: ${user.moverProfile.district}` : '',
+    ].filter(Boolean).join('\n');
+
+    try {
+      const json = await callWithRetry(async () => {
+        const msg = await client.messages.create({
+          model: MODEL,
+          max_tokens: 1500,
+          messages: [{
+            role: 'user',
+            content: `Government scheme advisor for Indian agriculture. User profile:\n${profileLines}\n\nList 4-6 most relevant central + Punjab/Haryana state government schemes with step-by-step apply instructions.\nReturn ONLY valid JSON:\n{"schemes":[{"name":"Scheme Name","benefit":"Specific amount or %","eligibility":"Who qualifies","howToApply":"Numbered step-by-step instructions","deadline":"When to apply","category":"income_support/crop_insurance/credit/subsidy/incentive/price_support","officialLink":"https://...","matchReason":"Why this specific user qualifies"}],"summary":"2-sentence personalized advice","priorityScheme":"Most important scheme name for this user"}`
+          }]
+        });
+        return extractJSON(msg.content[0].text);
+      });
+      return res.json({ ...json, source: 'ai', userRole: user.role });
+    } catch (aiErr) {
+      console.error('[AI] Schemes fallback used:', aiErr.message);
+      const schemes = SCHEME_FALLBACKS[user.role] || SCHEME_FALLBACKS.farmer;
+      return res.json({
+        schemes,
+        summary: `As a ${user.role} in Punjab/Haryana, you qualify for several government schemes. Start with the highest-benefit scheme first for immediate financial support.`,
+        priorityScheme: schemes[0]?.name,
+        source: 'fallback',
+        note: 'AI temporarily busy — showing standard schemes for your role.',
+        userRole: user.role,
+      });
+    }
+  } catch (err) {
+    console.error('[AI] getSchemes error:', err.message);
+    res.status(500).json({ error: 'Failed to load schemes' });
+  }
+};
+
 exports.procurementForecast = async (req, res) => {
   const { industryType, district, state, monthsAhead = 1 } = req.body;
   if (!industryType) return res.status(400).json({ error: 'Industry type is required' });

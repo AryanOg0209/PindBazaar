@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
@@ -114,10 +114,40 @@ export default function DocumentsPage() {
   const [error, setError]         = useState('');
   const [uploaded, setUploaded]   = useState(false);
 
+  // OCR state
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrResult, setOcrResult]   = useState(null);
+  const [ocrError, setOcrError]     = useState('');
+
   const role    = user?.role || 'farmer';
   const docList = DOC_CONFIG[role] || DOC_CONFIG.farmer;
 
-  const setFile = (field, file) => setFiles(f => ({ ...f, [field]: file }));
+  const setFile = (field, file) => {
+    setFiles(f => ({ ...f, [field]: file }));
+    if (field === 'aadhaar') { setOcrResult(null); setOcrError(''); }
+  };
+
+  const scanAadhaar = async () => {
+    const file = files['aadhaar'];
+    if (!file) return;
+    setOcrLoading(true); setOcrError(''); setOcrResult(null);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const dataUrl = e.target.result;
+          const base64 = dataUrl.split(',')[1];
+          const mediaType = file.type || 'image/jpeg';
+          const res = await api.post('/ai/parse-document', { imageBase64: base64, mediaType, documentType: 'Aadhaar card' });
+          setOcrResult(res.data);
+        } catch (err) {
+          setOcrError(err.response?.data?.error || 'Could not read document. Try a clearer photo.');
+        } finally { setOcrLoading(false); }
+      };
+      reader.onerror = () => { setOcrError('Could not read file.'); setOcrLoading(false); };
+      reader.readAsDataURL(file);
+    } catch { setOcrLoading(false); }
+  };
   const uploadedCount = Object.values(files).filter(Boolean).length;
   const requiredList  = docList.filter(d => d.required);
   const allRequired   = requiredList.every(d => files[d.field]);
@@ -244,6 +274,61 @@ export default function DocumentsPage() {
             <UploadZone key={doc.field} doc={doc} file={files[doc.field]} onChange={f => setFile(doc.field, f)} />
           ))}
         </div>
+
+        {/* Aadhaar OCR Section */}
+        {files['aadhaar'] && files['aadhaar'].type?.startsWith('image/') && (
+          <div style={{ background: 'linear-gradient(135deg,#EDE9FE,#F5F3FF)', border: '1.5px solid #C4B5FD', borderRadius: 16, padding: '16px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: ocrResult ? 12 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 18 }}>🔍</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#5B21B6' }}>Auto-fill from Aadhaar</div>
+                  <div style={{ fontSize: 11, color: '#7C3AED', fontWeight: 500 }}>Claude AI will extract your details</div>
+                </div>
+              </div>
+              {!ocrResult && (
+                <button onClick={scanAadhaar} disabled={ocrLoading}
+                  style={{ padding: '8px 16px', background: '#7C3AED', color: 'white', border: 'none', borderRadius: 10, fontWeight: 800, fontSize: 12, cursor: ocrLoading ? 'wait' : 'pointer', opacity: ocrLoading ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+                  {ocrLoading ? '⟳ Scanning...' : '✦ Scan Now'}
+                </button>
+              )}
+            </div>
+
+            {ocrError && <div style={{ marginTop: 8, fontSize: 12, color: '#B91C1C', fontWeight: 600, background: '#FEE2E2', padding: '8px 12px', borderRadius: 8 }}>{ocrError}</div>}
+
+            {ocrResult && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#5B21B6', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>
+                  Extracted Details {ocrResult.confidence > 0 && `· ${ocrResult.confidence}% confidence`}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {[
+                    { label: '👤 Name',     value: ocrResult.name },
+                    { label: '📅 DOB',      value: ocrResult.dob },
+                    { label: '⚧ Gender',   value: ocrResult.gender },
+                    { label: '📍 District', value: ocrResult.district },
+                    { label: '📮 PIN Code', value: ocrResult.pinCode },
+                    { label: '🏛 State',   value: ocrResult.state },
+                  ].filter(f => f.value).map((f, i) => (
+                    <div key={i} style={{ background: 'white', borderRadius: 8, padding: '8px 12px', border: '1px solid #DDD6FE' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#7C3AED', marginBottom: 2 }}>{f.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1E1B4B' }}>{f.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {ocrResult.address && (
+                  <div style={{ background: 'white', borderRadius: 8, padding: '8px 12px', border: '1px solid #DDD6FE' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#7C3AED', marginBottom: 2 }}>📬 Address</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1E1B4B', lineHeight: 1.4 }}>{ocrResult.address}</div>
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: '#6D28D9', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>✅</span> Details extracted — please verify they match your profile before submitting.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {error && <div className="error-box">{error}</div>}
 

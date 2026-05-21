@@ -36,6 +36,13 @@ export default function MarketPage() {
   const [negoAdvice, setNegoAdvice]     = useState(null);
   const [negoLoading, setNegoLoading]   = useState(false);
 
+  // Crop photo scanner
+  const [aiTab, setAiTab]               = useState('text'); // 'text' | 'photo'
+  const [cropPhoto, setCropPhoto]       = useState(null);
+  const [photoAnalyzing, setPhotoAnalyzing] = useState(false);
+  const [photoResult, setPhotoResult]   = useState(null);
+  const [photoError, setPhotoError]     = useState('');
+
   const [formData, setFormData] = useState({
     type: 'demand', title: '', description: '', cropType: '', quantity: '', price: '', location: ''
   });
@@ -133,6 +140,44 @@ export default function MarketPage() {
     } catch (e) {
       setAiGenError(e.response?.data?.error || 'AI generation failed.');
     } finally { setAiGenerating(false); }
+  };
+
+  const handlePhotoScan = async (file) => {
+    if (!file) return;
+    setCropPhoto(file);
+    setPhotoAnalyzing(true); setPhotoError(''); setPhotoResult(null);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const base64 = e.target.result.split(',')[1];
+          const res = await api.post('/ai/analyze-crop-photo', {
+            imageBase64: base64,
+            mediaType: file.type || 'image/jpeg',
+            userRole: user?.role,
+            district: user?.district,
+          });
+          const d = res.data;
+          setPhotoResult(d);
+          // Auto-fill form from photo result
+          if (d.confidence > 30) {
+            setFormData(f => ({
+              ...f,
+              type: d.listingType || 'supply',
+              title: d.title || f.title,
+              description: d.description || f.description,
+              cropType: d.cropType || f.cropType,
+              quantity: d.quantity ? String(d.quantity) : f.quantity,
+              price: d.suggestedPricePerQuintal ? String(d.suggestedPricePerQuintal) : f.price,
+            }));
+          }
+        } catch (err) {
+          setPhotoError(err.response?.data?.error || 'Photo analysis failed. Fill details manually.');
+        } finally { setPhotoAnalyzing(false); }
+      };
+      reader.onerror = () => { setPhotoError('Could not read file.'); setPhotoAnalyzing(false); };
+      reader.readAsDataURL(file);
+    } catch { setPhotoAnalyzing(false); }
   };
 
   const openAccept = (listing) => {
@@ -305,23 +350,84 @@ export default function MarketPage() {
       {showModal && (
         <Modal title="📋 Create New Listing" onClose={() => setShowModal(false)}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* AI Generator */}
+            {/* AI Generator — tab switcher */}
             <div style={{ background: 'linear-gradient(135deg,#EEF2FF,#E0E7FF)', borderRadius: 12, padding: 16, border: '1px solid #C7D2FE' }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: '#3730A3', marginBottom: 8 }}>✦ Generate with AI</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  placeholder='e.g. "Want to sell 50 quintals of wheat from Ludhiana"'
-                  value={aiPrompt}
-                  onChange={e => setAiPrompt(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAIGenerate())}
-                  style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #C7D2FE', fontSize: 13, fontFamily: 'inherit', background: 'white' }}
-                />
-                <button type="button" onClick={handleAIGenerate} disabled={aiGenerating || !aiPrompt.trim()}
-                  style={{ padding: '9px 16px', background: '#3730A3', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>
-                  {aiGenerating ? '...' : '✦ Fill'}
+              {/* Tab toggle */}
+              <div style={{ display: 'flex', gap: 4, marginBottom: 12, background: 'rgba(255,255,255,0.6)', borderRadius: 8, padding: 3, width: 'fit-content' }}>
+                <button type="button" onClick={() => setAiTab('text')}
+                  style={{ padding: '5px 14px', borderRadius: 6, border: 'none', fontWeight: 700, fontSize: 12, cursor: 'pointer', background: aiTab === 'text' ? '#3730A3' : 'transparent', color: aiTab === 'text' ? 'white' : '#4338CA' }}>
+                  ✦ Describe
+                </button>
+                <button type="button" onClick={() => setAiTab('photo')}
+                  style={{ padding: '5px 14px', borderRadius: 6, border: 'none', fontWeight: 700, fontSize: 12, cursor: 'pointer', background: aiTab === 'photo' ? '#3730A3' : 'transparent', color: aiTab === 'photo' ? 'white' : '#4338CA' }}>
+                  📸 Crop Photo
                 </button>
               </div>
-              {aiGenError && <div style={{ marginTop: 8, fontSize: 12, color: aiGenError.startsWith('💡') ? '#1e40af' : '#DC2626', fontWeight: 600 }}>{aiGenError}</div>}
+
+              {aiTab === 'text' ? (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#3730A3', marginBottom: 6 }}>Describe your crop or service</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      placeholder='e.g. "Want to sell 50 quintals of wheat from Ludhiana"'
+                      value={aiPrompt}
+                      onChange={e => setAiPrompt(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAIGenerate())}
+                      style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #C7D2FE', fontSize: 13, fontFamily: 'inherit', background: 'white' }}
+                    />
+                    <button type="button" onClick={handleAIGenerate} disabled={aiGenerating || !aiPrompt.trim()}
+                      style={{ padding: '9px 16px', background: '#3730A3', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>
+                      {aiGenerating ? '...' : '✦ Fill'}
+                    </button>
+                  </div>
+                  {aiGenError && <div style={{ marginTop: 8, fontSize: 12, color: aiGenError.startsWith('💡') ? '#1e40af' : '#DC2626', fontWeight: 600 }}>{aiGenError}</div>}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#3730A3', marginBottom: 6 }}>Upload a photo of your crop — AI fills the listing</div>
+                  <label style={{ display: 'block', cursor: 'pointer' }}>
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => e.target.files[0] && handlePhotoScan(e.target.files[0])} />
+                    <div style={{ border: '2px dashed #C7D2FE', borderRadius: 8, padding: '14px', textAlign: 'center', background: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                      {cropPhoto ? (
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#3730A3' }}>📷 {cropPhoto.name}</span>
+                      ) : (
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#6366F1' }}>📸 Tap to select crop photo</span>
+                      )}
+                    </div>
+                  </label>
+
+                  {photoAnalyzing && (
+                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#4338CA', fontWeight: 600 }}>
+                      <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span> Claude is analyzing your crop photo…
+                    </div>
+                  )}
+
+                  {photoError && <div style={{ marginTop: 8, fontSize: 12, color: '#DC2626', fontWeight: 600 }}>{photoError}</div>}
+
+                  {photoResult && !photoAnalyzing && (
+                    <div style={{ marginTop: 10, background: 'white', borderRadius: 10, padding: '10px 14px', border: '1px solid #C7D2FE' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: '#0F172A' }}>
+                          {photoResult.cropType} · Grade {photoResult.qualityGrade}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 10,
+                          background: photoResult.confidence > 70 ? '#DCFCE7' : '#FEF3C7',
+                          color: photoResult.confidence > 70 ? '#166534' : '#92400E' }}>
+                          {photoResult.confidence}% confidence
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>{photoResult.qualityNotes}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#059669' }}>Suggested: ₹{photoResult.suggestedPricePerQuintal}/quintal</div>
+                      {photoResult.sellingTips?.length > 0 && (
+                        <div style={{ marginTop: 6, fontSize: 11, color: '#1E40AF', fontWeight: 600 }}>
+                          💡 {photoResult.sellingTips[0]}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 8, fontSize: 11, color: '#16A34A', fontWeight: 700 }}>✅ Form auto-filled from photo analysis</div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div style={{ gridColumn: '1 / -1' }}>

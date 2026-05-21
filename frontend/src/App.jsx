@@ -20,6 +20,7 @@ import SettingsPage    from './pages/SettingsPage';
 import MarketInsightsPage from './pages/MarketInsightsPage';
 import EquipmentPage   from './pages/EquipmentPage';
 import MapPage         from './pages/MapPage';
+import SchemesPage     from './pages/SchemesPage';
 import AdminLogin      from './pages/admin/AdminLogin';
 import AdminDashboard  from './pages/admin/AdminDashboard';
 import AdminDetail     from './pages/admin/AdminDetail';
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/market-insights" element={<ProtectedRoute><MarketInsightsPage /></ProtectedRoute>} />
           <Route path="/equipment"       element={<ProtectedRoute><EquipmentPage /></ProtectedRoute>} />
           <Route path="/map"             element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
+          <Route path="/schemes"         element={<ProtectedRoute><SchemesPage /></ProtectedRoute>} />
 
           {/* Admin */}
           <Route path="/admin/login" element={<AdminLogin />} />

@@ -16,5 +16,8 @@ router.post('/negotiation-advice', ai.negotiationAdvice);
 router.post('/route-planner', ai.routePlanner);
 router.post('/harvest-window', ai.harvestWindow);
 router.post('/procurement-forecast', ai.procurementForecast);
+router.post('/parse-document',      ai.parseDocument);
+router.post('/analyze-crop-photo',  ai.analyzeCropPhoto);
+router.get('/schemes',              ai.getSchemes);
 
 module.exports = router;
