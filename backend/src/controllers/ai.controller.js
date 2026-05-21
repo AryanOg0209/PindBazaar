@@ -699,9 +699,10 @@ exports.getSchemes = async (req, res) => {
         const msg = await client.messages.create({
           model: MODEL,
           max_tokens: 1500,
+          system: 'You are a JSON API. You MUST respond with ONLY a valid JSON object — no explanation, no markdown, no code fences, no extra text. Output the raw JSON starting with { and ending with }.',
           messages: [{
             role: 'user',
-            content: `Government scheme advisor for Indian agriculture. User profile:\n${profileLines}\n\nList 4-6 most relevant central + Punjab/Haryana state government schemes with step-by-step apply instructions.\nReturn ONLY valid JSON:\n{"schemes":[{"name":"Scheme Name","benefit":"Specific amount or %","eligibility":"Who qualifies","howToApply":"Numbered step-by-step instructions","deadline":"When to apply","category":"income_support/crop_insurance/credit/subsidy/incentive/price_support","officialLink":"https://...","matchReason":"Why this specific user qualifies"}],"summary":"2-sentence personalized advice","priorityScheme":"Most important scheme name for this user"}`
+            content: `Government scheme advisor for Indian agriculture. User profile:\n${profileLines}\n\nList 4-6 most relevant central + Punjab/Haryana state government schemes.\n\nRespond with this exact JSON structure:\n{"schemes":[{"name":"Scheme Name","benefit":"Specific amount or %","eligibility":"Who qualifies","howToApply":"Step 1. Do this. Step 2. Do that.","deadline":"When to apply","category":"income_support","officialLink":"https://example.gov.in","matchReason":"Why this specific user qualifies"}],"summary":"2-sentence personalized advice","priorityScheme":"Most important scheme name"}\n\ncategory must be one of: income_support, crop_insurance, credit, subsidy, incentive, price_support`
           }]
         });
         return extractJSON(msg.content[0].text);

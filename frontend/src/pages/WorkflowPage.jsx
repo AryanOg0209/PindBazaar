@@ -1,53 +1,59 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import DesktopTopNav from '../components/dashboard/DesktopTopNav';
 import api from '../api/axios';
 
+/* ──────────────────────────────────────────────────────────
+   STAGE METADATA
+────────────────────────────────────────────────────────── */
 const STAGE_META = {
-  pending:            { label: 'Awaiting Baler',     color: '#92400E', bg: '#FEF3C7', icon: '⏳', step: 0 },
-  baler_assigned:     { label: 'Baling in Progress', color: '#1E40AF', bg: '#DBEAFE', icon: '📦', step: 1 },
-  baling_done:        { label: 'Ready for Transport', color: '#6D28D9', bg: '#EDE9FE', icon: '✅', step: 2 },
-  transport_assigned: { label: 'Transport Assigned',  color: '#0E7490', bg: '#CFFAFE', icon: '🚚', step: 3 },
-  in_transit:         { label: 'In Transit',          color: '#C2410C', bg: '#FFEDD5', icon: '🛣️', step: 4 },
-  at_storage:         { label: 'At Storage',          color: '#475569', bg: '#F1F5F9', icon: '🏠', step: 4 },
-  delivered:          { label: 'Delivered',           color: '#166534', bg: '#DCFCE7', icon: '🎉', step: 5 },
-  completed:          { label: 'Completed',           color: '#166534', bg: '#DCFCE7', icon: '✅', step: 5 },
-  cancelled:          { label: 'Cancelled',           color: '#991B1B', bg: '#FEE2E2', icon: '❌', step: -1 },
+  pending:            { label: 'Awaiting Baler Bids', color: '#92400E', bg: '#FEF3C7', icon: '⏳', step: 0 },
+  baler_assigned:     { label: 'Baling in Progress',  color: '#1E40AF', bg: '#DBEAFE', icon: '📦', step: 1 },
+  baling_done:        { label: 'Baled — Seeking Buyer',color: '#6D28D9', bg: '#EDE9FE', icon: '✅', step: 2 },
+  industry_linked:    { label: 'Buyer Found — Need Transport', color: '#0E7490', bg: '#CFFAFE', icon: '🏭', step: 3 },
+  transport_assigned: { label: 'Transport Booked',    color: '#065F46', bg: '#D1FAE5', icon: '🚚', step: 4 },
+  in_transit:         { label: 'In Transit',           color: '#C2410C', bg: '#FFEDD5', icon: '🛣️', step: 5 },
+  at_storage:         { label: 'At Storage',           color: '#475569', bg: '#F1F5F9', icon: '🏠', step: 5 },
+  delivered:          { label: 'Delivered ✓',          color: '#166534', bg: '#DCFCE7', icon: '🎉', step: 6 },
+  completed:          { label: 'Completed',            color: '#166534', bg: '#DCFCE7', icon: '✅', step: 6 },
+  cancelled:          { label: 'Cancelled',            color: '#991B1B', bg: '#FEE2E2', icon: '❌', step: -1 },
 };
 
 const PIPELINE_STEPS = [
-  { key: 'farmer',    label: 'Farmer',    icon: '🌾', stage: 'pending' },
-  { key: 'baler',     label: 'Baler',     icon: '📦', stage: 'baler_assigned' },
-  { key: 'transport', label: 'Transport', icon: '🚚', stage: 'transport_assigned' },
-  { key: 'industry',  label: 'Industry',  icon: '🏭', stage: 'delivered' },
+  { label: 'Request',   icon: '🌾' },
+  { label: 'Baling',    icon: '📦' },
+  { label: 'Buyer',     icon: '🏭' },
+  { label: 'Transport', icon: '🚚' },
+  { label: 'Delivered', icon: '🎉' },
 ];
 
+/* ──────────────────────────────────────────────────────────
+   SHARED COMPONENTS
+────────────────────────────────────────────────────────── */
 function PipelineBar({ stage }) {
   const currentStep = STAGE_META[stage]?.step ?? 0;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 0, margin: '12px 0 4px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', margin: '10px 0 4px', gap: 0 }}>
       {PIPELINE_STEPS.map((step, i) => {
-        const done = currentStep > i;
-        const active = currentStep === i || (i === 1 && ['baler_assigned','baling_done'].includes(stage)) || (i === 2 && ['transport_assigned','in_transit'].includes(stage));
+        const done   = currentStep > i;
+        const active = currentStep === i;
         return (
-          <div key={step.key} style={{ display: 'flex', alignItems: 'center', flex: i < 3 ? 1 : 'none' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 52 }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'center', flex: i < 4 ? 1 : 'none' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 44 }}>
               <div style={{
-                width: 36, height: 36, borderRadius: '50%',
-                background: done || active ? (done ? '#1B4332' : '#F59E0B') : '#E2E8F0',
-                border: active && !done ? '3px solid #F59E0B' : '2px solid transparent',
+                width: 32, height: 32, borderRadius: '50%',
+                background: done ? '#1B4332' : active ? '#F59E0B' : '#E2E8F0',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 16, transition: 'all .3s'
+                fontSize: 14, fontWeight: 700, color: done || active ? 'white' : '#94A3B8',
+                transition: 'all .3s'
               }}>
                 {done ? '✓' : step.icon}
               </div>
-              <span style={{ fontSize: 9, fontWeight: 700, color: done || active ? '#1B4332' : '#94A3B8', textTransform: 'uppercase', textAlign: 'center' }}>
+              <span style={{ fontSize: 8, fontWeight: 700, color: done || active ? '#1B4332' : '#94A3B8', textTransform: 'uppercase', textAlign: 'center', lineHeight: 1.2 }}>
                 {step.label}
               </span>
             </div>
-            {i < 3 && (
-              <div style={{ flex: 1, height: 3, background: done ? '#1B4332' : '#E2E8F0', margin: '0 2px', marginBottom: 16, transition: 'background .3s' }} />
-            )}
+            {i < 4 && <div style={{ flex: 1, height: 2.5, background: done ? '#1B4332' : '#E2E8F0', margin: '0 2px', marginBottom: 16, transition: 'background .3s' }} />}
           </div>
         );
       })}
@@ -55,397 +61,977 @@ function PipelineBar({ stage }) {
   );
 }
 
-function WorkflowCard({ wf, userRole, onAction, loading }) {
-  const [expanded, setExpanded] = useState(false);
-  const [actionData, setActionData] = useState({});
-  const meta = STAGE_META[wf.stage] || STAGE_META.pending;
-
-  const canAcceptBaling   = userRole === 'baler'    && wf.stage === 'pending'       && !wf.balerId;
-  const canMarkBalingDone = userRole === 'baler'    && wf.stage === 'baler_assigned';
-  const canAcceptTransport = userRole === 'mover'   && wf.stage === 'baling_done'   && !wf.moverId;
-  const canMarkPickup     = userRole === 'mover'    && wf.stage === 'transport_assigned';
-  const canMarkDelivered  = (userRole === 'mover' || userRole === 'industry') && wf.stage === 'in_transit';
-  const canLinkIndustry   = userRole === 'industry' && ['baling_done','transport_assigned','in_transit'].includes(wf.stage) && !wf.industryId;
-
+function StageBadge({ stage }) {
+  const m = STAGE_META[stage] || {};
   return (
-    <div style={{ background: 'white', borderRadius: 16, boxShadow: '0 4px 16px rgba(0,0,0,.07)', border: '1px solid #E2E8F0', overflow: 'hidden' }}>
-      {/* Stage color bar */}
-      <div style={{ height: 4, background: meta.color }} />
+    <span style={{ background: m.bg, color: m.color, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>
+      {m.icon} {m.label}
+    </span>
+  );
+}
 
-      <div style={{ padding: '18px 22px' }}>
-        {/* Header row */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: meta.bg, color: meta.color }}>
-                {meta.icon} {meta.label}
-              </span>
-              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>#{wf.id.slice(0,8).toUpperCase()}</span>
-            </div>
-            <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 800, color: '#0F172A' }}>
-              {wf.cropType} · {wf.quantityTons} tons
-            </h3>
-            <div style={{ fontSize: 13, color: '#475569', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <span>📍 {wf.location}, {wf.district}</span>
-              {wf.acresCount && <span>🌾 {wf.acresCount} acres</span>}
-            </div>
-          </div>
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            {wf.finalPriceRs && <div style={{ fontSize: 20, fontWeight: 800, color: '#059669' }}>₹{Number(wf.finalPriceRs).toLocaleString()}</div>}
-            <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>{new Date(wf.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</div>
-          </div>
-        </div>
+function Btn({ children, onClick, color = '#1B4332', disabled, style = {} }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: '8px 16px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13,
+        background: disabled ? '#CBD5E1' : color, color: disabled ? '#94A3B8' : 'white',
+        cursor: disabled ? 'not-allowed' : 'pointer', transition: 'opacity .2s', ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
-        {/* Pipeline visual */}
-        <PipelineBar stage={wf.stage} />
-
-        {/* Participants row */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0', fontSize: 12 }}>
-          <ParticipantBadge icon="🌾" label="Farmer"    name={wf.farmer?.name}   filled />
-          <ParticipantBadge icon="📦" label="Baler"     name={wf.baler?.name}    filled={!!wf.baler} />
-          <ParticipantBadge icon="🚚" label="Mover"     name={wf.mover?.name}    filled={!!wf.mover} />
-          <ParticipantBadge icon="🏭" label="Industry"  name={wf.industry?.name} filled={!!wf.industry} />
-        </div>
-
-        {/* Action buttons */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-          {canAcceptBaling && (
-            <ActionPanel title="Accept Baling Job">
-              <input type="number" placeholder="Your price (₹)" style={INP}
-                onChange={e => setActionData(d => ({ ...d, balerPriceRs: e.target.value }))} />
-              <Btn label="📦 Accept Baling" color="#1B4332" loading={loading}
-                onClick={() => onAction(wf.id, 'accept-baling', actionData)} />
-            </ActionPanel>
-          )}
-          {canMarkBalingDone && (
-            <ActionPanel title="Mark Baling Complete">
-              <input type="number" placeholder="Number of bales produced" style={INP}
-                onChange={e => setActionData(d => ({ ...d, balesCount: e.target.value }))} />
-              <Btn label="✅ Baling Done" color="#059669" loading={loading}
-                onClick={() => onAction(wf.id, 'baling-done', actionData)} />
-            </ActionPanel>
-          )}
-          {canAcceptTransport && (
-            <ActionPanel title="Accept Transport Job">
-              <input type="text"   placeholder="Delivery address / industry location" style={INP}
-                onChange={e => setActionData(d => ({ ...d, deliveryAddress: e.target.value }))} />
-              <input type="number" placeholder="Your transport price (₹)" style={INP}
-                onChange={e => setActionData(d => ({ ...d, moverPriceRs: e.target.value }))} />
-              <Btn label="🚚 Accept Transport" color="#7C3AED" loading={loading}
-                onClick={() => onAction(wf.id, 'accept-transport', actionData)} />
-            </ActionPanel>
-          )}
-          {canMarkPickup && (
-            <Btn label="📦 Picked Up — In Transit" color="#C2410C" loading={loading}
-              onClick={() => onAction(wf.id, 'pickup-done', {})} />
-          )}
-          {canMarkDelivered && (
-            <ActionPanel title="Confirm Delivery">
-              <input type="number" placeholder="Quantity delivered (tons)" style={INP}
-                onChange={e => setActionData(d => ({ ...d, deliveredQtyTons: e.target.value }))} />
-              <Btn label="🎉 Mark Delivered" color="#166534" loading={loading}
-                onClick={() => onAction(wf.id, 'delivered', actionData)} />
-            </ActionPanel>
-          )}
-          {canLinkIndustry && (
-            <ActionPanel title="Link as Delivery Destination">
-              <input type="number" placeholder="Your offered price (₹)" style={INP}
-                onChange={e => setActionData(d => ({ ...d, finalPriceRs: e.target.value }))} />
-              <Btn label="🏭 Link My Industry" color="#0E7490" loading={loading}
-                onClick={() => onAction(wf.id, 'link-industry', actionData)} />
-            </ActionPanel>
-          )}
-
-          <button onClick={() => setExpanded(!expanded)}
-            style={{ padding: '8px 14px', border: '1px solid #E2E8F0', background: 'white', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#475569' }}>
-            {expanded ? '▲ Hide Timeline' : '▼ View Timeline'}
-          </button>
-        </div>
-
-        {/* Timeline */}
-        {expanded && wf.events?.length > 0 && (
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #F1F5F9' }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 10 }}>Timeline</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {wf.events.map((ev, i) => {
-                const m = STAGE_META[ev.stage] || { icon: '•', color: '#64748B' };
-                return (
-                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: m.bg || '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>{m.icon}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>{ev.note}</div>
-                      <div style={{ fontSize: 11, color: '#94A3B8' }}>
-                        {ev.actorRole} · {new Date(ev.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+function Input({ label, value, onChange, type = 'text', placeholder, min }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 3 }}>{label}</label>
+      <input
+        type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        min={min}
+        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box', outline: 'none' }}
+      />
     </div>
   );
 }
 
-function ParticipantBadge({ icon, label, name, filled }) {
+function WorkflowCard({ wf, children, accent }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 5,
-      background: filled ? '#F0FDF4' : '#F8FAFC',
-      border: `1px solid ${filled ? '#BBF7D0' : '#E2E8F0'}`,
-      borderRadius: 8, padding: '4px 10px', fontSize: 12,
+      background: 'white', borderRadius: 14, padding: 18, marginBottom: 16,
+      border: `2px solid ${accent || '#E2E8F0'}`,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
     }}>
-      <span>{icon}</span>
-      <span style={{ fontWeight: 700, color: filled ? '#166534' : '#94A3B8' }}>
-        {name || label}
-      </span>
-      {!filled && <span style={{ color: '#CBD5E1', fontSize: 11 }}>needed</span>}
-    </div>
-  );
-}
-
-function ActionPanel({ title, children }) {
-  return (
-    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-      <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>{title}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 16, color: '#1B4332' }}>{wf.cropType} — {wf.quantityTons} tons</div>
+          <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{wf.location}, {wf.district} · #{wf.id.slice(0, 8)}</div>
+        </div>
+        <StageBadge stage={wf.stage} />
+      </div>
+      <PipelineBar stage={wf.stage} />
       {children}
     </div>
   );
 }
 
-function Btn({ label, onClick, color, loading }) {
-  return (
-    <button onClick={onClick} disabled={loading}
-      style={{ padding: '9px 18px', background: color, color: 'white', border: 'none', borderRadius: 8, fontWeight: 800, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1, whiteSpace: 'nowrap' }}>
-      {loading ? '...' : label}
-    </button>
-  );
-}
+/* ──────────────────────────────────────────────────────────
+   FARMER VIEW
+────────────────────────────────────────────────────────── */
+function FarmerView({ user }) {
+  const [myWorkflows, setMyWorkflows]   = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [showCreate, setShowCreate]     = useState(false);
+  const [creating, setCreating]         = useState(false);
+  const [form, setForm]                 = useState({ cropType: '', quantityTons: '', location: '', district: '', acresCount: '', notes: '' });
+  const [actionLoading, setActionLoading] = useState('');
+  const [msg, setMsg]                   = useState('');
 
-// ── Create Biomass Request Form (farmer only) ──
-function CreateRequestForm({ onCreated }) {
-  const [form, setForm] = useState({ cropType: 'Paddy', quantityTons: '', location: '', district: '', acresCount: '', notes: '' });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const CROPS = ['Paddy', 'Wheat', 'Cotton', 'Sugarcane', 'Mustard', 'Maize', 'Barley', 'Soybean'];
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.quantityTons || !form.location || !form.district) { setError('Fill all required fields'); return; }
-    setLoading(true); setError('');
+  const load = useCallback(async () => {
     try {
-      const res = await api.post('/workflow', form);
-      onCreated(res.data);
+      const { data } = await api.get('/workflow');
+      setMyWorkflows(data);
+    } catch {
+      setMsg('Could not load your requests');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const createWorkflow = async () => {
+    if (!form.cropType || !form.quantityTons || !form.location || !form.district) {
+      return setMsg('Fill in all required fields');
+    }
+    setCreating(true);
+    try {
+      await api.post('/workflow', form);
+      setShowCreate(false);
+      setForm({ cropType: '', quantityTons: '', location: '', district: '', acresCount: '', notes: '' });
+      setMsg('✅ Biomass request posted! Balers will start bidding shortly.');
+      await load();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create request');
-    } finally { setLoading(false); }
+      setMsg(err.response?.data?.error || 'Failed to create request');
+    } finally {
+      setCreating(false);
+    }
   };
 
+  const acceptBid = async (wfId, bidId) => {
+    setActionLoading(`bid-${bidId}`);
+    try {
+      await api.post(`/workflow/${wfId}/accept-bid/${bidId}`);
+      setMsg('✅ Baler assigned! They will start baling your crop.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to accept bid');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const acceptOffer = async (wfId, offerId) => {
+    setActionLoading(`offer-${offerId}`);
+    try {
+      await api.post(`/workflow/${wfId}/accept-offer/${offerId}`);
+      setMsg('✅ Industry buyer locked in! Now accepting transport bids.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to accept offer');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const acceptTransportBid = async (wfId, bidId) => {
+    setActionLoading(`tbid-${bidId}`);
+    try {
+      await api.post(`/workflow/${wfId}/accept-transport-bid/${bidId}`);
+      setMsg('✅ Transport booked! Mover will pick up bales.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to accept transport bid');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const cancelWorkflow = async (wfId) => {
+    if (!window.confirm('Cancel this request?')) return;
+    setActionLoading(`cancel-${wfId}`);
+    try {
+      await api.put(`/workflow/${wfId}/cancel`);
+      setMsg('Request cancelled.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to cancel');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading your requests…</div>;
+
   return (
-    <form onSubmit={handleSubmit} style={{ background: 'white', borderRadius: 16, padding: 24, border: '2px solid #1B4332', boxShadow: '0 8px 24px rgba(27,67,50,.12)' }}>
-      <div style={{ fontSize: 16, fontWeight: 800, color: '#1B4332', marginBottom: 16 }}>🌾 Create Biomass Request</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <label style={LBL}>Crop Type *</label>
-          <select value={form.cropType} onChange={e => setForm(f => ({ ...f, cropType: e.target.value }))} style={SEL}>
-            {CROPS.map(c => <option key={c}>{c}</option>)}
-          </select>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#1B4332' }}>🌾 My Biomass Requests</div>
+          <div style={{ fontSize: 13, color: '#6B7280' }}>Post crop residue → get baler bids → sell to industry</div>
         </div>
-        <div>
-          <label style={LBL}>Quantity (tons) *</label>
-          <input type="number" required placeholder="e.g. 25" value={form.quantityTons} onChange={e => setForm(f => ({ ...f, quantityTons: e.target.value }))} style={INP} />
-        </div>
-        <div>
-          <label style={LBL}>Village / Location *</label>
-          <input required placeholder="e.g. Machhiwara" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} style={INP} />
-        </div>
-        <div>
-          <label style={LBL}>District *</label>
-          <input required placeholder="e.g. Ludhiana" value={form.district} onChange={e => setForm(f => ({ ...f, district: e.target.value }))} style={INP} />
-        </div>
-        <div>
-          <label style={LBL}>Acreage (optional)</label>
-          <input type="number" placeholder="Acres of land" value={form.acresCount} onChange={e => setForm(f => ({ ...f, acresCount: e.target.value }))} style={INP} />
-        </div>
-        <div>
-          <label style={LBL}>Notes (optional)</label>
-          <input placeholder="Any special instructions" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={INP} />
-        </div>
+        <Btn onClick={() => setShowCreate(true)}>+ New Request</Btn>
       </div>
-      {error && <div style={{ marginTop: 10, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>{error}</div>}
-      <button type="submit" disabled={loading}
-        style={{ marginTop: 16, width: '100%', padding: '12px', background: '#1B4332', color: 'white', border: 'none', borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-        {loading ? 'Creating...' : '🚀 Launch Biomass Workflow'}
-      </button>
-    </form>
+
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? '#DCFCE7' : '#FEE2E2', color: msg.startsWith('✅') ? '#166534' : '#991B1B', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600 }}>
+          {msg} <button onClick={() => setMsg('')} style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {/* Create Form */}
+      {showCreate && (
+        <div style={{ background: 'white', borderRadius: 14, padding: 24, border: '2px solid #1B4332', marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#1B4332', marginBottom: 16 }}>📋 New Biomass Request</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 4 }}>Crop Type *</label>
+              <select value={form.cropType} onChange={e => setForm(f => ({ ...f, cropType: e.target.value }))}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13 }}>
+                <option value="">Select crop</option>
+                {CROPS.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <Input label="Quantity (tons) *" type="number" value={form.quantityTons} onChange={v => setForm(f => ({ ...f, quantityTons: v }))} placeholder="e.g. 12" min="1" />
+            <Input label="Village / Location *" value={form.location} onChange={v => setForm(f => ({ ...f, location: v }))} placeholder="Village name" />
+            <Input label="District *" value={form.district} onChange={v => setForm(f => ({ ...f, district: v }))} placeholder="e.g. Ludhiana" />
+            <Input label="Land Acres (optional)" type="number" value={form.acresCount} onChange={v => setForm(f => ({ ...f, acresCount: v }))} placeholder="e.g. 5" />
+            <Input label="Notes (optional)" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any special instructions" />
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <Btn onClick={createWorkflow} disabled={creating}>{creating ? 'Posting…' : 'Post Request'}</Btn>
+            <Btn onClick={() => setShowCreate(false)} color="#6B7280">Cancel</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Workflow list */}
+      {myWorkflows.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, background: 'white', borderRadius: 14 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🌾</div>
+          <div style={{ fontWeight: 700, color: '#374151', marginBottom: 6 }}>No requests yet</div>
+          <div style={{ color: '#6B7280', fontSize: 13 }}>Post your first biomass request to get baler bids</div>
+        </div>
+      ) : (
+        myWorkflows.map(wf => (
+          <WorkflowCard key={wf.id} wf={wf} accent={wf.stage === 'pending' && wf.balerBids?.length > 0 ? '#F59E0B' : undefined}>
+
+            {/* ── Pending: show baler bids to accept ── */}
+            {wf.stage === 'pending' && (
+              <div style={{ marginTop: 12 }}>
+                {wf.balerBids?.length === 0 ? (
+                  <div style={{ padding: '12px 0', color: '#6B7280', fontSize: 13 }}>⏳ Waiting for balers to place bids…</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1B4332', marginBottom: 8 }}>
+                      🔨 {wf.balerBids.length} Baler Bid{wf.balerBids.length > 1 ? 's' : ''} — Pick the best:
+                    </div>
+                    {wf.balerBids.filter(b => b.status === 'pending').map(bid => (
+                      <div key={bid.id} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{bid.baler?.name || 'Baler'}</div>
+                          <div style={{ fontSize: 12, color: '#6B7280' }}>
+                            ₹{bid.pricePerTon}/ton × {bid.quantityTons} tons = <strong>₹{(bid.pricePerTon * bid.quantityTons).toLocaleString()}</strong>
+                            {' '}· {bid.estimatedDays} days
+                          </div>
+                          {bid.message && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }}>"{bid.message}"</div>}
+                        </div>
+                        <Btn
+                          onClick={() => acceptBid(wf.id, bid.id)}
+                          disabled={actionLoading === `bid-${bid.id}`}
+                          color="#1B4332"
+                        >
+                          {actionLoading === `bid-${bid.id}` ? 'Accepting…' : '✓ Accept'}
+                        </Btn>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── Baler assigned: show who's baling ── */}
+            {wf.stage === 'baler_assigned' && (
+              <div style={{ marginTop: 10, background: '#DBEAFE', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                📦 <strong>{wf.baler?.name}</strong> is baling your crop. Estimated cost: ₹{wf.balerPriceRs?.toLocaleString()}
+              </div>
+            )}
+
+            {/* ── Baling done: show industry offers ── */}
+            {wf.stage === 'baling_done' && (
+              <div style={{ marginTop: 12 }}>
+                {wf.industryOffers?.length === 0 ? (
+                  <div style={{ padding: '10px 0', color: '#6B7280', fontSize: 13 }}>⏳ Waiting for industry buyers to submit offers…</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#6D28D9', marginBottom: 8 }}>
+                      🏭 {wf.industryOffers.length} Industry Offer{wf.industryOffers.length > 1 ? 's' : ''} — Choose a buyer:
+                    </div>
+                    {wf.industryOffers.filter(o => o.status === 'pending').map(offer => (
+                      <div key={offer.id} style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{offer.industry?.name || 'Industry Buyer'}</div>
+                          <div style={{ fontSize: 12, color: '#6B7280' }}>
+                            ₹{offer.pricePerTon}/ton × {offer.quantityTons} tons = <strong>₹{(offer.pricePerTon * offer.quantityTons).toLocaleString()}</strong>
+                          </div>
+                          {offer.message && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }}>"{offer.message}"</div>}
+                        </div>
+                        <Btn
+                          onClick={() => acceptOffer(wf.id, offer.id)}
+                          disabled={actionLoading === `offer-${offer.id}`}
+                          color="#6D28D9"
+                        >
+                          {actionLoading === `offer-${offer.id}` ? 'Accepting…' : '✓ Accept Offer'}
+                        </Btn>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── Industry linked: show transport bids ── */}
+            {wf.stage === 'industry_linked' && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 13, color: '#0E7490', marginBottom: 8 }}>🏭 Buyer: <strong>{wf.industry?.name}</strong> · Total deal: ₹{wf.finalPriceRs?.toLocaleString()}</div>
+                {wf.transportBids?.length === 0 ? (
+                  <div style={{ color: '#6B7280', fontSize: 13 }}>⏳ Waiting for movers to bid on transport…</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0E7490', marginBottom: 8 }}>
+                      🚚 {wf.transportBids.length} Transport Bid{wf.transportBids.length > 1 ? 's' : ''}:
+                    </div>
+                    {wf.transportBids.filter(b => b.status === 'pending').map(bid => (
+                      <div key={bid.id} style={{ background: '#ECFEFF', border: '1px solid #A5F3FC', borderRadius: 10, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{bid.mover?.name || 'Mover'}</div>
+                          <div style={{ fontSize: 12, color: '#6B7280' }}>₹{bid.priceTotal?.toLocaleString()} total · {bid.estimatedDays} days</div>
+                          {bid.message && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }}>"{bid.message}"</div>}
+                        </div>
+                        <Btn
+                          onClick={() => acceptTransportBid(wf.id, bid.id)}
+                          disabled={actionLoading === `tbid-${bid.id}`}
+                          color="#0E7490"
+                        >
+                          {actionLoading === `tbid-${bid.id}` ? 'Booking…' : '✓ Book Transport'}
+                        </Btn>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── Transport/transit/delivered ── */}
+            {wf.stage === 'transport_assigned' && (
+              <div style={{ marginTop: 10, background: '#D1FAE5', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                🚚 <strong>{wf.mover?.name}</strong> will pick up your bales. Transport cost: ₹{wf.moverPriceRs?.toLocaleString()}
+              </div>
+            )}
+            {wf.stage === 'in_transit' && (
+              <div style={{ marginTop: 10, background: '#FFEDD5', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                🛣️ Your bales are on the way to <strong>{wf.industry?.name}</strong>
+              </div>
+            )}
+            {['delivered', 'completed'].includes(wf.stage) && (
+              <div style={{ marginTop: 10, background: '#DCFCE7', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                🎉 Delivered! {wf.deliveredQtyTons || wf.quantityTons} tons received. Total earnings: ₹{((wf.finalPriceRs || 0) - (wf.balerPriceRs || 0) - (wf.moverPriceRs || 0)).toLocaleString()}
+              </div>
+            )}
+
+            {/* Cancel button */}
+            {!['delivered', 'completed', 'cancelled'].includes(wf.stage) && (
+              <div style={{ marginTop: 10, textAlign: 'right' }}>
+                <button
+                  onClick={() => cancelWorkflow(wf.id)}
+                  disabled={actionLoading === `cancel-${wf.id}`}
+                  style={{ fontSize: 11, color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Cancel Request
+                </button>
+              </div>
+            )}
+          </WorkflowCard>
+        ))
+      )}
+    </div>
   );
 }
 
+/* ──────────────────────────────────────────────────────────
+   BALER VIEW
+────────────────────────────────────────────────────────── */
+function BalerView({ user }) {
+  const [openJobs, setOpenJobs]   = useState([]);
+  const [myJobs, setMyJobs]       = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [bidForms, setBidForms]   = useState({});
+  const [submitting, setSubmitting] = useState('');
+  const [msg, setMsg]             = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const [open, mine] = await Promise.all([
+        api.get('/workflow/open'),
+        api.get('/workflow'),
+      ]);
+      setOpenJobs(open.data);
+      setMyJobs(mine.data);
+    } catch {
+      setMsg('Could not load jobs');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submitBid = async (wfId) => {
+    const form = bidForms[wfId] || {};
+    if (!form.pricePerTon || !form.quantityTons) return setMsg('Enter price and quantity');
+    setSubmitting(wfId);
+    try {
+      await api.post(`/workflow/${wfId}/bid`, {
+        pricePerTon: parseFloat(form.pricePerTon),
+        quantityTons: parseFloat(form.quantityTons),
+        estimatedDays: parseInt(form.estimatedDays || 3),
+        message: form.message || '',
+      });
+      setMsg('✅ Bid submitted! The farmer will review your offer.');
+      setBidForms(f => ({ ...f, [wfId]: undefined }));
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to submit bid');
+    } finally {
+      setSubmitting('');
+    }
+  };
+
+  const markBalingDone = async (wfId) => {
+    const balesCount = window.prompt('How many bales did you produce?', '0');
+    if (balesCount === null) return;
+    try {
+      await api.put(`/workflow/${wfId}/baling-done`, { balesCount: parseInt(balesCount) });
+      setMsg('✅ Baling marked complete! Industry can now submit purchase offers.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to update');
+    }
+  };
+
+  const setField = (wfId, key, val) => setBidForms(f => ({ ...f, [wfId]: { ...f[wfId], [key]: val } }));
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading jobs…</div>;
+
+  return (
+    <div>
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? '#DCFCE7' : '#FEE2E2', color: msg.startsWith('✅') ? '#166534' : '#991B1B', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600 }}>
+          {msg} <button onClick={() => setMsg('')} style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {/* Open Jobs to Bid On */}
+      <div style={{ fontSize: 18, fontWeight: 800, color: '#1B4332', marginBottom: 4 }}>📋 Open Farmer Requests</div>
+      <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>Submit competitive bids to win baling contracts</div>
+
+      {openJobs.length === 0 ? (
+        <div style={{ background: 'white', borderRadius: 14, padding: 40, textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+          <div style={{ color: '#6B7280', fontSize: 13 }}>No open requests right now — check back after harvest season</div>
+        </div>
+      ) : (
+        openJobs.map(wf => {
+          const form = bidForms[wf.id] || {};
+          const isExpanded = form.expanded;
+          return (
+            <div key={wf.id} style={{ background: 'white', borderRadius: 14, padding: 18, marginBottom: 14, border: '2px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: '#1B4332' }}>{wf.cropType} — {wf.quantityTons} tons</div>
+                  <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>📍 {wf.location}, {wf.district} · by {wf.farmer?.name}</div>
+                  {wf.notes && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, fontStyle: 'italic' }}>"{wf.notes}"</div>}
+                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                    {wf.balerBids?.length || 0} bid{(wf.balerBids?.length || 0) !== 1 ? 's' : ''} so far
+                    {wf.acresCount ? ` · ${wf.acresCount} acres` : ''}
+                  </div>
+                </div>
+                <Btn onClick={() => setField(wf.id, 'expanded', !isExpanded)} color={isExpanded ? '#6B7280' : '#1B4332'}>
+                  {isExpanded ? 'Hide Form' : '💰 Place Bid'}
+                </Btn>
+              </div>
+
+              {isExpanded && (
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #F1F5F9' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Your Price (₹/ton) *</label>
+                      <input type="number" value={form.pricePerTon || ''} onChange={e => setField(wf.id, 'pricePerTon', e.target.value)}
+                        placeholder="e.g. 1200" min="1"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Quantity you can take (tons) *</label>
+                      <input type="number" value={form.quantityTons || ''} onChange={e => setField(wf.id, 'quantityTons', e.target.value)}
+                        placeholder={`max ${wf.quantityTons}`} min="1" max={wf.quantityTons}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Days to complete</label>
+                      <input type="number" value={form.estimatedDays || ''} onChange={e => setField(wf.id, 'estimatedDays', e.target.value)}
+                        placeholder="3" min="1"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Message to farmer (optional)</label>
+                      <input type="text" value={form.message || ''} onChange={e => setField(wf.id, 'message', e.target.value)}
+                        placeholder="e.g. Available immediately"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                  </div>
+                  {form.pricePerTon && form.quantityTons && (
+                    <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '8px 12px', marginTop: 10, fontSize: 13, fontWeight: 700, color: '#166534' }}>
+                      💰 Your total bid: ₹{(parseFloat(form.pricePerTon) * parseFloat(form.quantityTons)).toLocaleString()}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <Btn onClick={() => submitBid(wf.id)} disabled={submitting === wf.id}>
+                      {submitting === wf.id ? 'Submitting…' : '✓ Submit Bid'}
+                    </Btn>
+                    <Btn onClick={() => setField(wf.id, 'expanded', false)} color="#6B7280">Cancel</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {/* My Active Jobs */}
+      {myJobs.length > 0 && (
+        <>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#1B4332', marginTop: 24, marginBottom: 4 }}>⚙️ My Assigned Jobs</div>
+          <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>Active baling contracts</div>
+          {myJobs.filter(wf => ['baler_assigned'].includes(wf.stage) && wf.balerId === user.id).map(wf => (
+            <WorkflowCard key={wf.id} wf={wf} accent="#1E40AF">
+              <div style={{ marginTop: 12, background: '#DBEAFE', borderRadius: 8, padding: 12, fontSize: 13 }}>
+                <div>👨‍🌾 Farmer: <strong>{wf.farmer?.name}</strong> · {wf.location}</div>
+                <div style={{ marginTop: 4 }}>Your earnings: <strong>₹{wf.balerPriceRs?.toLocaleString()}</strong></div>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <Btn onClick={() => markBalingDone(wf.id)} color="#1E40AF">✅ Mark Baling Complete</Btn>
+              </div>
+            </WorkflowCard>
+          ))}
+
+          {/* Pending Bid Status */}
+          {myJobs.filter(wf => wf.stage === 'pending').map(wf => {
+            const myBid = wf.balerBids?.find(b => b.balerId === user.id);
+            return (
+              <WorkflowCard key={wf.id} wf={wf}>
+                <div style={{ marginTop: 10, background: '#FEF3C7', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                  ⏳ Your bid: ₹{myBid?.pricePerTon}/ton × {myBid?.quantityTons} tons = ₹{((myBid?.pricePerTon || 0) * (myBid?.quantityTons || 0)).toLocaleString()} — waiting for farmer decision
+                </div>
+              </WorkflowCard>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+   INDUSTRY VIEW
+────────────────────────────────────────────────────────── */
+function IndustryView({ user }) {
+  const [available, setAvailable] = useState([]);
+  const [myDeals, setMyDeals]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [offerForms, setOfferForms] = useState({});
+  const [submitting, setSubmitting] = useState('');
+  const [msg, setMsg]             = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const [open, mine] = await Promise.all([
+        api.get('/workflow/open'),
+        api.get('/workflow'),
+      ]);
+      setAvailable(open.data);
+      setMyDeals(mine.data);
+    } catch {
+      setMsg('Could not load data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submitOffer = async (wfId) => {
+    const form = offerForms[wfId] || {};
+    if (!form.pricePerTon || !form.quantityTons) return setMsg('Enter price and quantity');
+    setSubmitting(wfId);
+    try {
+      await api.post(`/workflow/${wfId}/offer`, {
+        pricePerTon: parseFloat(form.pricePerTon),
+        quantityTons: parseFloat(form.quantityTons),
+        message: form.message || '',
+      });
+      setMsg('✅ Offer submitted! The farmer will review your purchase offer.');
+      setOfferForms(f => ({ ...f, [wfId]: undefined }));
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to submit offer');
+    } finally {
+      setSubmitting('');
+    }
+  };
+
+  const confirmDelivery = async (wfId, quantityTons) => {
+    const qty = window.prompt('Confirm delivered quantity (tons):', String(quantityTons));
+    if (!qty) return;
+    try {
+      await api.put(`/workflow/${wfId}/delivered`, { deliveredQtyTons: parseFloat(qty) });
+      setMsg('✅ Delivery confirmed! Pipeline complete.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to confirm delivery');
+    }
+  };
+
+  const setField = (wfId, key, val) => setOfferForms(f => ({ ...f, [wfId]: { ...f[wfId], [key]: val } }));
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading…</div>;
+
+  return (
+    <div>
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? '#DCFCE7' : '#FEE2E2', color: msg.startsWith('✅') ? '#166534' : '#991B1B', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600 }}>
+          {msg} <button onClick={() => setMsg('')} style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {/* Available Biomass */}
+      <div style={{ fontSize: 18, fontWeight: 800, color: '#1B4332', marginBottom: 4 }}>🏭 Available Baled Biomass</div>
+      <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>Submit purchase offers on baled and ready crop residue</div>
+
+      {available.length === 0 ? (
+        <div style={{ background: 'white', borderRadius: 14, padding: 40, textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+          <div style={{ color: '#6B7280', fontSize: 13 }}>No baled biomass available right now. Check back after harvest season.</div>
+        </div>
+      ) : (
+        available.map(wf => {
+          const form = offerForms[wf.id] || {};
+          const isExpanded = form.expanded;
+          return (
+            <div key={wf.id} style={{ background: 'white', borderRadius: 14, padding: 18, marginBottom: 14, border: '2px solid #EDE9FE', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: '#1B4332' }}>{wf.cropType} — {wf.quantityTons} tons baled</div>
+                  <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>📍 {wf.location}, {wf.district}</div>
+                  {wf.balesCount && <div style={{ fontSize: 12, color: '#6B7280' }}>🗂 {wf.balesCount} bales produced</div>}
+                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                    {wf.industryOffers?.length || 0} offer{(wf.industryOffers?.length || 0) !== 1 ? 's' : ''} submitted
+                  </div>
+                </div>
+                <Btn onClick={() => setField(wf.id, 'expanded', !isExpanded)} color={isExpanded ? '#6B7280' : '#6D28D9'}>
+                  {isExpanded ? 'Hide Form' : '💰 Make Offer'}
+                </Btn>
+              </div>
+
+              {isExpanded && (
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #F1F5F9' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Your Price (₹/ton) *</label>
+                      <input type="number" value={form.pricePerTon || ''} onChange={e => setField(wf.id, 'pricePerTon', e.target.value)}
+                        placeholder="e.g. 3500" min="1"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Quantity you want (tons) *</label>
+                      <input type="number" value={form.quantityTons || ''} onChange={e => setField(wf.id, 'quantityTons', e.target.value)}
+                        placeholder={`max ${wf.quantityTons}`} min="1" max={wf.quantityTons}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div style={{ gridColumn: '1/-1' }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Message to farmer (optional)</label>
+                      <input type="text" value={form.message || ''} onChange={e => setField(wf.id, 'message', e.target.value)}
+                        placeholder="e.g. Can take delivery within 7 days"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                  </div>
+                  {form.pricePerTon && form.quantityTons && (
+                    <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 8, padding: '8px 12px', marginTop: 10, fontSize: 13, fontWeight: 700, color: '#6D28D9' }}>
+                      💼 Your total offer: ₹{(parseFloat(form.pricePerTon) * parseFloat(form.quantityTons)).toLocaleString()}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <Btn onClick={() => submitOffer(wf.id)} disabled={submitting === wf.id} color="#6D28D9">
+                      {submitting === wf.id ? 'Submitting…' : '✓ Submit Offer'}
+                    </Btn>
+                    <Btn onClick={() => setField(wf.id, 'expanded', false)} color="#6B7280">Cancel</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {/* My Active Deals */}
+      {myDeals.length > 0 && (
+        <>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#1B4332', marginTop: 24, marginBottom: 4 }}>📦 My Procurement Deals</div>
+          <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>Active and pending biomass purchases</div>
+          {myDeals.map(wf => {
+            const myOffer = wf.industryOffers?.find(o => o.industryId === user.id);
+            return (
+              <WorkflowCard key={wf.id} wf={wf} accent="#6D28D9">
+                {myOffer && (
+                  <div style={{ marginTop: 10, fontSize: 13, background: '#F5F3FF', borderRadius: 8, padding: 10 }}>
+                    Your offer: ₹{myOffer.pricePerTon}/ton × {myOffer.quantityTons} tons = <strong>₹{(myOffer.pricePerTon * myOffer.quantityTons).toLocaleString()}</strong>
+                    {' '}— <span style={{ color: myOffer.status === 'accepted' ? '#166534' : myOffer.status === 'rejected' ? '#991B1B' : '#92400E', fontWeight: 700 }}>{myOffer.status}</span>
+                  </div>
+                )}
+                {wf.stage === 'in_transit' && wf.industryId === user.id && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ background: '#FFEDD5', borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 8 }}>
+                      🚚 Bales are in transit to your location
+                    </div>
+                    <Btn onClick={() => confirmDelivery(wf.id, wf.quantityTons)} color="#166534">
+                      ✅ Confirm Delivery Received
+                    </Btn>
+                  </div>
+                )}
+                {['delivered', 'completed'].includes(wf.stage) && (
+                  <div style={{ marginTop: 10, background: '#DCFCE7', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                    🎉 {wf.deliveredQtyTons || wf.quantityTons} tons received. Deal complete!
+                  </div>
+                )}
+              </WorkflowCard>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+   MOVER VIEW
+────────────────────────────────────────────────────────── */
+function MoverView({ user }) {
+  const [openJobs, setOpenJobs]   = useState([]);
+  const [myJobs, setMyJobs]       = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [bidForms, setBidForms]   = useState({});
+  const [submitting, setSubmitting] = useState('');
+  const [msg, setMsg]             = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const [open, mine] = await Promise.all([
+        api.get('/workflow/open'),
+        api.get('/workflow'),
+      ]);
+      setOpenJobs(open.data);
+      setMyJobs(mine.data);
+    } catch {
+      setMsg('Could not load jobs');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submitTransportBid = async (wfId) => {
+    const form = bidForms[wfId] || {};
+    if (!form.priceTotal) return setMsg('Enter your total price');
+    setSubmitting(wfId);
+    try {
+      await api.post(`/workflow/${wfId}/transport-bid`, {
+        priceTotal: parseFloat(form.priceTotal),
+        estimatedDays: parseInt(form.estimatedDays || 2),
+        message: form.message || '',
+      });
+      setMsg('✅ Bid submitted! Farmer will review your transport offer.');
+      setBidForms(f => ({ ...f, [wfId]: undefined }));
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to submit bid');
+    } finally {
+      setSubmitting('');
+    }
+  };
+
+  const markPickup = async (wfId) => {
+    try {
+      await api.put(`/workflow/${wfId}/pickup-done`);
+      setMsg('✅ Pickup confirmed! Bales are in transit.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to mark pickup');
+    }
+  };
+
+  const markDelivered = async (wfId, quantityTons) => {
+    const qty = window.prompt('Confirm delivered quantity (tons):', String(quantityTons));
+    if (!qty) return;
+    try {
+      await api.put(`/workflow/${wfId}/delivered`, { deliveredQtyTons: parseFloat(qty) });
+      setMsg('✅ Delivery confirmed! Job complete.');
+      await load();
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'Failed to confirm delivery');
+    }
+  };
+
+  const setField = (wfId, key, val) => setBidForms(f => ({ ...f, [wfId]: { ...f[wfId], [key]: val } }));
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading jobs…</div>;
+
+  return (
+    <div>
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? '#DCFCE7' : '#FEE2E2', color: msg.startsWith('✅') ? '#166534' : '#991B1B', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13, fontWeight: 600 }}>
+          {msg} <button onClick={() => setMsg('')} style={{ float: 'right', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+        </div>
+      )}
+
+      {/* Open Transport Jobs */}
+      <div style={{ fontSize: 18, fontWeight: 800, color: '#1B4332', marginBottom: 4 }}>🚚 Open Transport Jobs</div>
+      <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>Bid on biomass transport from farm to industry</div>
+
+      {openJobs.length === 0 ? (
+        <div style={{ background: 'white', borderRadius: 14, padding: 40, textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+          <div style={{ color: '#6B7280', fontSize: 13 }}>No transport jobs right now. They appear after industry buyers confirm purchases.</div>
+        </div>
+      ) : (
+        openJobs.map(wf => {
+          const form = bidForms[wf.id] || {};
+          const isExpanded = form.expanded;
+          return (
+            <div key={wf.id} style={{ background: 'white', borderRadius: 14, padding: 18, marginBottom: 14, border: '2px solid #CFFAFE', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: '#1B4332' }}>{wf.cropType} — {wf.quantityTons} tons</div>
+                  <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                    📍 From: {wf.location}, {wf.district}
+                    {wf.industry?.name ? ` → 🏭 ${wf.industry.name}` : ''}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                    {wf.transportBids?.length || 0} bid{(wf.transportBids?.length || 0) !== 1 ? 's' : ''} submitted
+                  </div>
+                </div>
+                <Btn onClick={() => setField(wf.id, 'expanded', !isExpanded)} color={isExpanded ? '#6B7280' : '#0E7490'}>
+                  {isExpanded ? 'Hide Form' : '🚚 Place Bid'}
+                </Btn>
+              </div>
+
+              {isExpanded && (
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #F1F5F9' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Total Transport Price (₹) *</label>
+                      <input type="number" value={form.priceTotal || ''} onChange={e => setField(wf.id, 'priceTotal', e.target.value)}
+                        placeholder="e.g. 8000" min="1"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Days to deliver</label>
+                      <input type="number" value={form.estimatedDays || ''} onChange={e => setField(wf.id, 'estimatedDays', e.target.value)}
+                        placeholder="2" min="1"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                    <div style={{ gridColumn: '1/-1' }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Message (optional)</label>
+                      <input type="text" value={form.message || ''} onChange={e => setField(wf.id, 'message', e.target.value)}
+                        placeholder="e.g. Have 2 trucks available"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 13, boxSizing: 'border-box' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <Btn onClick={() => submitTransportBid(wf.id)} disabled={submitting === wf.id} color="#0E7490">
+                      {submitting === wf.id ? 'Submitting…' : '✓ Submit Bid'}
+                    </Btn>
+                    <Btn onClick={() => setField(wf.id, 'expanded', false)} color="#6B7280">Cancel</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {/* My Active Jobs */}
+      {myJobs.length > 0 && (
+        <>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#1B4332', marginTop: 24, marginBottom: 4 }}>⚙️ My Transport Jobs</div>
+          <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>Assigned and in-progress routes</div>
+          {myJobs.map(wf => {
+            const myBid = wf.transportBids?.find(b => b.moverId === user.id);
+            return (
+              <WorkflowCard key={wf.id} wf={wf} accent="#0E7490">
+                {myBid && wf.stage !== 'industry_linked' && (
+                  <div style={{ marginTop: 10, fontSize: 13, background: '#ECFEFF', borderRadius: 8, padding: 10 }}>
+                    Your bid: <strong>₹{myBid.priceTotal?.toLocaleString()}</strong> · {myBid.estimatedDays} days
+                    {' '}— <span style={{ color: myBid.status === 'accepted' ? '#166534' : myBid.status === 'rejected' ? '#991B1B' : '#92400E', fontWeight: 700 }}>{myBid.status}</span>
+                  </div>
+                )}
+                {wf.stage === 'industry_linked' && myBid?.status === 'pending' && (
+                  <div style={{ marginTop: 10, background: '#FEF3C7', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                    ⏳ Bid pending farmer approval
+                  </div>
+                )}
+                {wf.stage === 'transport_assigned' && wf.moverId === user.id && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ background: '#D1FAE5', borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 8 }}>
+                      📍 Pickup from: <strong>{wf.location}</strong> · Deliver to: <strong>{wf.industry?.name || 'Industry'}</strong>
+                    </div>
+                    <Btn onClick={() => markPickup(wf.id)} color="#065F46">🚚 Confirm Pickup</Btn>
+                  </div>
+                )}
+                {wf.stage === 'in_transit' && wf.moverId === user.id && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ background: '#FFEDD5', borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 8 }}>
+                      🛣️ En route to {wf.industry?.name || 'industry'}
+                    </div>
+                    <Btn onClick={() => markDelivered(wf.id, wf.quantityTons)} color="#166534">✅ Confirm Delivery</Btn>
+                  </div>
+                )}
+                {['delivered', 'completed'].includes(wf.stage) && (
+                  <div style={{ marginTop: 10, background: '#DCFCE7', borderRadius: 8, padding: 10, fontSize: 13 }}>
+                    🎉 Delivered {wf.deliveredQtyTons || wf.quantityTons} tons. Earnings: ₹{wf.moverPriceRs?.toLocaleString()}
+                  </div>
+                )}
+              </WorkflowCard>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────
+   MAIN PAGE
+────────────────────────────────────────────────────────── */
 export default function WorkflowPage() {
   const { user } = useAuth();
-  const [myWorkflows,   setMyWorkflows]   = useState([]);
-  const [openWorkflows, setOpenWorkflows] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [tab, setTab]           = useState('mine'); // 'mine' | 'open' | 'create'
-  const [error, setError]       = useState('');
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [mine, open] = await Promise.all([
-        api.get('/workflow').then(r => r.data),
-        api.get('/workflow/open').then(r => r.data).catch(() => []),
-      ]);
-      setMyWorkflows(mine);
-      setOpenWorkflows(open);
-    } catch (e) {
-      setError('Failed to load workflows');
-    } finally { setLoading(false); }
+  const roleConfig = {
+    farmer:   { title: '🌾 Biomass Pipeline',       subtitle: 'Post requests · Review bids · Track delivery' },
+    baler:    { title: '📦 Baling Jobs',             subtitle: 'Bid on open requests · Mark baling complete' },
+    industry: { title: '🏭 Biomass Procurement',    subtitle: 'Browse available biomass · Submit purchase offers' },
+    mover:    { title: '🚚 Transport Jobs',          subtitle: 'Bid on transport routes · Confirm pickups & delivery' },
+    admin:    { title: '⚙️ All Workflows',           subtitle: 'Full pipeline visibility' },
   };
 
-  useEffect(() => { load(); }, []);
+  const config = roleConfig[user?.role] || roleConfig.farmer;
 
-  const handleAction = async (workflowId, action, data) => {
-    setActionLoading(true);
-    try {
-      const method = ['accept-baling', 'accept-transport', 'link-industry'].includes(action) ? 'post' : 'put';
-      await api[method](`/workflow/${workflowId}/${action}`, data);
-      await load();
-      setTab('mine');
-    } catch (e) {
-      alert(e.response?.data?.error || 'Action failed');
-    } finally { setActionLoading(false); }
-  };
-
-  const roleTabs = [];
-  if (user?.role === 'farmer') roleTabs.push({ key: 'create', label: '+ New Request', icon: '🌾' });
-  roleTabs.push({ key: 'mine', label: 'My Workflows', icon: '📋' });
-  if (['baler', 'mover', 'industry'].includes(user?.role)) roleTabs.push({ key: 'open', label: 'Open Jobs', icon: '🔍' });
-
-  const STAGE_LABELS = {
-    farmer:   'Track your biomass requests through the full pipeline',
-    baler:    'Accept baling jobs, then mark complete when done',
-    mover:    'Accept transport jobs, then mark pickup and delivery',
-    industry: 'Link to incoming deliveries and confirm receipt',
-  };
+  const isMobile = window.innerWidth < 768;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#F0F4F8' }}>
-      <DesktopTopNav user={user} />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'var(--font-sans, system-ui, sans-serif)' }}>
+      {!isMobile && <DesktopTopNav user={user} />}
 
-          {/* Header */}
-          <div style={{ marginBottom: 20 }}>
-            <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0F172A', margin: '0 0 4px' }}>
-              ♻️ Biomass Pipeline
-            </h1>
-            <p style={{ color: '#64748B', margin: 0, fontSize: 14 }}>
-              {STAGE_LABELS[user?.role] || 'Connected biomass supply chain from farm to industry'}
-            </p>
-          </div>
+      {/* Page Header */}
+      <div style={{ background: 'linear-gradient(135deg, #1B4332 0%, #2D6A4F 100%)', color: 'white', padding: isMobile ? '20px 16px' : '28px 40px' }}>
+        <div style={{ maxWidth: 860, margin: '0 auto' }}>
+          <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 900 }}>{config.title}</div>
+          <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>{config.subtitle}</div>
 
-          {/* Pipeline legend */}
-          <div style={{ background: 'white', borderRadius: 14, padding: '14px 20px', marginBottom: 20, border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}>
-            <span style={{ fontWeight: 800, color: '#0F172A', marginRight: 6 }}>Pipeline:</span>
-            {['🌾 Farmer creates request', '→', '📦 Baler accepts & bales', '→', '🚚 Mover transports', '→', '🏭 Industry receives'].map((s, i) => (
-              <span key={i} style={{ color: s === '→' ? '#CBD5E1' : '#374151', fontWeight: s === '→' ? 400 : 600 }}>{s}</span>
+          {/* Pipeline Legend */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Farmer posts', color: '#FEF3C7', text: '#92400E' },
+              { label: 'Baler bids → works', color: '#DBEAFE', text: '#1E40AF' },
+              { label: 'Industry offers → buys', color: '#EDE9FE', text: '#6D28D9' },
+              { label: 'Mover transports', color: '#CFFAFE', text: '#0E7490' },
+              { label: 'Delivered ✓', color: '#DCFCE7', text: '#166534' },
+            ].map(step => (
+              <span key={step.label} style={{ background: step.color, color: step.text, padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 700 }}>
+                {step.label}
+              </span>
             ))}
           </div>
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: 4, background: 'white', padding: 4, borderRadius: 12, marginBottom: 20, width: 'fit-content', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-            {roleTabs.map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)}
-                style={{ padding: '8px 20px', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer',
-                  background: tab === t.key ? '#1B4332' : 'transparent',
-                  color: tab === t.key ? 'white' : '#64748B' }}>
-                {t.icon} {t.label}
-                {t.key === 'open' && openWorkflows.length > 0 && (
-                  <span style={{ marginLeft: 6, background: '#F59E0B', color: 'white', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 800 }}>
-                    {openWorkflows.length}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Create tab */}
-          {tab === 'create' && (
-            <CreateRequestForm onCreated={(wf) => { setMyWorkflows(m => [wf, ...m]); setTab('mine'); }} />
-          )}
-
-          {/* My Workflows tab */}
-          {tab === 'mine' && (
-            loading ? <LoadingSkeleton /> : myWorkflows.length === 0 ? (
-              <EmptyState role={user?.role} onNew={() => setTab(user?.role === 'farmer' ? 'create' : 'open')} />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {myWorkflows.map(wf => (
-                  <WorkflowCard key={wf.id} wf={wf} userRole={user?.role} onAction={handleAction} loading={actionLoading} />
-                ))}
-              </div>
-            )
-          )}
-
-          {/* Open Jobs tab */}
-          {tab === 'open' && (
-            loading ? <LoadingSkeleton /> : openWorkflows.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', background: 'white', borderRadius: 16, color: '#64748B' }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
-                <div style={{ fontWeight: 700, fontSize: 16 }}>No open jobs right now</div>
-                <div style={{ fontSize: 13, marginTop: 6 }}>Check back soon — farmers post new requests regularly</div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {openWorkflows.map(wf => (
-                  <WorkflowCard key={wf.id} wf={wf} userRole={user?.role} onAction={handleAction} loading={actionLoading} />
-                ))}
-              </div>
-            )
-          )}
         </div>
       </div>
+
+      {/* Content */}
+      <div style={{ maxWidth: 860, margin: '0 auto', padding: isMobile ? '16px 12px' : '28px 24px' }}>
+        {user?.role === 'farmer'   && <FarmerView   user={user} />}
+        {user?.role === 'baler'    && <BalerView    user={user} />}
+        {user?.role === 'industry' && <IndustryView user={user} />}
+        {user?.role === 'mover'    && <MoverView    user={user} />}
+        {user?.role === 'admin'    && <FarmerView   user={user} />}
+      </div>
+
+      {/* Mobile Bottom Padding */}
+      {isMobile && <div style={{ height: 80 }} />}
     </div>
   );
 }
-
-function LoadingSkeleton() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {[1,2].map(i => (
-        <div key={i} style={{ background: 'white', borderRadius: 16, padding: 24, border: '1px solid #E2E8F0' }}>
-          {[1,2,3].map(j => <div key={j} style={{ height: 14, background: '#F1F5F9', borderRadius: 4, marginBottom: 12, width: j===1?'50%':j===2?'80%':'35%' }} />)}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EmptyState({ role, onNew }) {
-  const msgs = {
-    farmer:   { title: 'No biomass requests yet', sub: 'Create your first request to start the pipeline', btn: '🌾 Create Biomass Request' },
-    baler:    { title: 'No active baling jobs', sub: 'Browse open jobs to accept your first assignment', btn: '🔍 Browse Open Jobs' },
-    mover:    { title: 'No transport assignments', sub: 'Browse open transport jobs once baling is done', btn: '🔍 Browse Open Jobs' },
-    industry: { title: 'No incoming deliveries', sub: 'Link to active workflows to receive biomass', btn: '🔍 Browse Deliveries' },
-  };
-  const m = msgs[role] || msgs.farmer;
-  return (
-    <div style={{ padding: 48, textAlign: 'center', background: 'white', borderRadius: 16, color: '#64748B' }}>
-      <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
-      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6, color: '#0F172A' }}>{m.title}</div>
-      <div style={{ fontSize: 13, marginBottom: 20 }}>{m.sub}</div>
-      <button onClick={onNew}
-        style={{ padding: '10px 24px', background: '#1B4332', color: 'white', border: 'none', borderRadius: 10, fontWeight: 800, cursor: 'pointer', fontSize: 13 }}>
-        {m.btn}
-      </button>
-    </div>
-  );
-}
-
-const INP = { width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' };
-const SEL = { width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #CBD5E1', fontSize: 13, background: 'white' };
-const LBL = { display: 'block', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.3px', marginBottom: 5 };

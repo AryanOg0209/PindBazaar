@@ -78,6 +78,9 @@ model User {
   balerWorkflows    BiomassWorkflow[]  @relation("BalerWorkflows")
   moverWorkflows    BiomassWorkflow[]  @relation("MoverWorkflows")
   industryWorkflows BiomassWorkflow[]  @relation("IndustryWorkflows")
+  balerBids         WorkflowBid[]      @relation("BalerBids")
+  industryOffers    IndustryOffer[]    @relation("IndustryOffers")
+  moverBids         TransportBid[]     @relation("MoverBids")
 
   @@map("users")
 }
@@ -357,7 +360,10 @@ model BiomassWorkflow {
   storageInAt     DateTime?
   storageOutAt    DateTime?
 
-  events       WorkflowEvent[]
+  events         WorkflowEvent[]
+  balerBids      WorkflowBid[]
+  industryOffers IndustryOffer[]
+  transportBids  TransportBid[]
 
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -378,4 +384,50 @@ model WorkflowEvent {
   createdAt  DateTime        @default(now())
 
   @@map("workflow_events")
+}
+
+model WorkflowBid {
+  id            String          @id @default(uuid())
+  workflowId    String
+  workflow      BiomassWorkflow @relation(fields: [workflowId], references: [id])
+  balerId       String
+  baler         User            @relation("BalerBids", fields: [balerId], references: [id])
+  pricePerTon   Float
+  quantityTons  Float
+  estimatedDays Int             @default(3)
+  message       String?
+  status        String          @default("pending")
+  createdAt     DateTime        @default(now())
+
+  @@map("workflow_bids")
+}
+
+model IndustryOffer {
+  id            String          @id @default(uuid())
+  workflowId    String
+  workflow      BiomassWorkflow @relation(fields: [workflowId], references: [id])
+  industryId    String
+  industry      User            @relation("IndustryOffers", fields: [industryId], references: [id])
+  pricePerTon   Float
+  quantityTons  Float
+  message       String?
+  status        String          @default("pending")
+  createdAt     DateTime        @default(now())
+
+  @@map("industry_offers")
+}
+
+model TransportBid {
+  id            String          @id @default(uuid())
+  workflowId    String
+  workflow      BiomassWorkflow @relation(fields: [workflowId], references: [id])
+  moverId       String
+  mover         User            @relation("MoverBids", fields: [moverId], references: [id])
+  priceTotal    Float
+  estimatedDays Int             @default(2)
+  message       String?
+  status        String          @default("pending")
+  createdAt     DateTime        @default(now())
+
+  @@map("transport_bids")
 }
